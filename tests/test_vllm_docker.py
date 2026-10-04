@@ -336,6 +336,29 @@ class TestBuildRunArgv:
         assert _docker._HF_XET_REQUIREMENT not in bash_cmd
         assert bash_cmd == "vllm serve my-model --host 0.0.0.0 --port 8100"
 
+    def test_offline_forwards_flag_and_skips_hub_bootstrap(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+        kwargs = self._base_kwargs(tmp_path)
+        kwargs["prefetch_model"] = "org/cold-model"
+
+        argv = build_run_argv(**kwargs)
+        env_flags = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-e"]
+
+        assert "HF_HUB_OFFLINE=1" in env_flags
+        assert "TRANSFORMERS_OFFLINE=1" in env_flags
+        assert argv[-1] == "vllm serve my-model --host 0.0.0.0 --port 8100"
+
+    def test_online_keeps_hub_bootstrap(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+        kwargs = self._base_kwargs(tmp_path)
+        kwargs["prefetch_model"] = "org/cold-model"
+
+        bash_cmd = build_run_argv(**kwargs)[-1]
+
+        assert "snapshot_download" in bash_cmd
+        assert "import hf_xet" in bash_cmd
+
     def test_extra_pip_uses_no_build_isolation(self, tmp_path):
         # mamba-ssm and causal-conv1d both `import torch` from setup.py at
         # config time — pip's default isolated build env has no torch and

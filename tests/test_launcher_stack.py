@@ -124,6 +124,8 @@ class TestRunStackShutdownContract:
     def stub_stack(self, monkeypatch, tmp_path):
         # load_credentials reads real ~/.config/~/.cache — neutralize it.
         monkeypatch.setattr(_stack, "load_credentials", lambda: None)
+        # configure_hf_offline probes the network and writes os.environ.
+        monkeypatch.setattr(_stack, "configure_hf_offline", lambda: False)
         calls: dict[str, object] = {}
         spawn_options: dict[str, bool] = {}
 

@@ -44,6 +44,8 @@ _HF_DOWNLOAD_ENV_KEYS = (
     "HF_XET_HIGH_PERFORMANCE",
     "HF_HUB_DISABLE_XET",
     "HF_HUB_ENABLE_HF_TRANSFER",
+    "HF_HUB_OFFLINE",
+    "TRANSFORMERS_OFFLINE",
 )
 _HF_XET_VERSION_SPEC = ">=1.1.2,<2.0.0"
 _HF_XET_REQUIREMENT = f"hf-xet{_HF_XET_VERSION_SPEC}"
@@ -199,13 +201,16 @@ def build_run_argv(
         "YES",
         "TRUE",
     }
-    if not xet_disabled:
+    # Offline, the Xet repair (pip) and the snapshot prefetch both need the Hub;
+    # vLLM loads straight from the cache that HF_HUB_OFFLINE points it at.
+    offline = env_vars.get("HF_HUB_OFFLINE", "").upper() in {"1", "ON", "YES", "TRUE"}
+    if not xet_disabled and not offline:
         # Images vary in their Hub/Xet stack. Repair a missing or incompatible
         # hf-xet wheel, then re-check the complete Hub integration so an
         # incapable Hub or install failure stops startup instead of falling
         # back to HTTPS.
         commands.extend([f"( {xet_check} || {xet_install} )", xet_check])
-    if prefetch_model:
+    if prefetch_model and not offline:
         # Spark's CPU and GPU share one memory pool. Finish network transfer,
         # snapshot reconstruction, and writeback before vLLM initializes CUDA
         # so their transient allocations cannot overlap a driver context.

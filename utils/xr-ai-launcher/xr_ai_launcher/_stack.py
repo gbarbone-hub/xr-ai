@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Sequence, Union
 
 from ._credentials import load_credentials
+from ._offline import configure_hf_offline
 
 _READY_INTERVAL = 5.0   # seconds between progress lines
 _STOP_TIMEOUT   = 20.0  # seconds before SIGKILL during shutdown
@@ -462,6 +463,7 @@ def run_stack(
             run_stack(PROCESSES, _BASE)
     """
     load_credentials()
+    configure_hf_offline()
 
     # "persist" and "reuse" processes are left running on shutdown.
     # "reuse" processes are not spawned at all — assumed already running.

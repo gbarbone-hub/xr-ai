@@ -68,6 +68,12 @@ Refer to the
 [credentials reference](https://nvidia.github.io/xr-ai/latest/getting_started/credentials.html) and
 configure the required credentials before starting the stack.
 
+After one online start has cached the weights, the stack can start without
+internet access. When the Hugging Face Hub is unreachable, the launcher sets
+`HF_HUB_OFFLINE=1` so every service, including the vLLM containers, loads from
+the local cache instead of retrying the network. Set `HF_HUB_OFFLINE=1` to force
+offline mode, or `HF_HUB_OFFLINE=0` to skip the reachability check.
+
 To use the self-hosted NIM profile instead of the default profile:
 
 ```bash
