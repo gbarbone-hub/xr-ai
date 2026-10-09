@@ -332,7 +332,10 @@ class VoiceGate:
         """Return a sentence fragment telling the user how to address the
         agent given the configured phrases. ``None`` when no phrases are
         configured (the caller picks a generic greeting). The wording
-        carries over from the original ``_greet`` implementation."""
+        carries over from the original ``_greet`` implementation. A
+        configured ``greeting`` replaces the generated text."""
+        if self._cfg.greeting:
+            return self._cfg.greeting
         phrases = list(self._cfg.magic_phrases)
         if not phrases:
             return None

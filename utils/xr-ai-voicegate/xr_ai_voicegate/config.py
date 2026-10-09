@@ -55,12 +55,19 @@ class VoiceGateConfig:
     set ``listening_chime: false`` to disable it.
     """
 
+    greeting:         str | None      = None
+    """Text spoken when a participant joins, replacing the phrase help.
+
+    ``None`` keeps the generated phrase help (or silence in always-on mode).
+    """
+
 
 def load_voice_gate_config(path: pathlib.Path) -> VoiceGateConfig:
     """Load + parse a voice_gate YAML file into a :class:`VoiceGateConfig`.
 
     Schema: a top-level mapping with keys ``magic_phrases`` (list[str] or
-    bare str), ``listening_chime`` (bool), ``followup_grace_s`` (float).
+    bare str), ``listening_chime`` (bool), ``followup_grace_s`` (float),
+    ``greeting`` (str).
     Missing file or empty file → returns the dataclass defaults (gate
     disabled / always-on). ``magic_phrases: null`` and trailing whitespace
     in phrases are normalized the same way the inline-block parser did.
@@ -82,6 +89,7 @@ def load_voice_gate_config(path: pathlib.Path) -> VoiceGateConfig:
         listening_chime  = _parse_config_bool(
             raw.get("listening_chime", True), "listening_chime"
         ),
+        greeting         = (str(raw.get("greeting") or "").strip() or None),
     )
 
 

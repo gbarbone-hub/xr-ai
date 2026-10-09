@@ -1005,3 +1005,9 @@ def test_load_voice_gate_config_xr_render_demo_sample_round_trip():
     assert cfg.magic_phrases    == ()
     assert cfg.listening_chime  is True
     assert cfg.followup_grace_s == 5.0
+
+
+def test_format_phrase_help_prefers_configured_greeting():
+    cfg = VoiceGateConfig(magic_phrases=("agent",), greeting="Say start making tea.")
+    gate = VoiceGate(cfg, audio_sink=_FakeAudioSink(), tts=_FakeTTS(sample_rate=22050))
+    assert gate.format_phrase_help() == "Say start making tea."
