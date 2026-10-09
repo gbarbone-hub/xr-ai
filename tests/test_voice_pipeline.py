@@ -4740,3 +4740,13 @@ def test_device_io_hub_transport_subscribes_to_video_frames():
         assert transport._ep._default_filter & Subscribe.DATA
     finally:
         transport.shutdown()
+
+
+def test_tts_speaks_temperatures_as_words():
+    from xr_ai_voice._processors.streaming_tts import _speakable
+
+    assert _speakable("The kettle display shows 194 °F.") == (
+        "The kettle display shows one hundred and ninety-four degrees Fahrenheit."
+    )
+    assert _speakable("Heat to 96 °C.") == "Heat to ninety-six degrees Celsius."
+    assert _speakable("Steep for 4 minutes.") == "Steep for 4 minutes."

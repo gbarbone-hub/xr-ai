@@ -72,6 +72,52 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 # in the buffer to concatenate onto the next turn.
 _TRAILING_SENTENCE_END = re.compile(r"""[.!?]["')\]]*\s*$""")
 
+# Pocket TTS clips or mispronounces temperature symbols ("200 °F" ends as
+# "Fahrenhei"), so speak units as words.
+_TEMPERATURE_UNIT = re.compile(r"\s*(?:°\s*([FC])\b|(℉)|(℃))")
+_UNIT_WORDS = {"F": " degrees Fahrenheit", "℉": " degrees Fahrenheit",
+               "C": " degrees Celsius", "℃": " degrees Celsius"}
+
+
+# Pocket TTS reads "194" as "nineteen four", so spell out degree values.
+_DEGREE_VALUE = re.compile(r"(?<![\d.])(-?)(\d{1,4})(?:\.(\d+))?(?= degrees?\b)")
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve "
+         "thirteen fourteen fifteen sixteen seventeen eighteen nineteen").split()
+_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def _number_words(n: int) -> str:
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        tens, ones = divmod(n, 10)
+        return _TENS[tens] + (f"-{_ONES[ones]}" if ones else "")
+    if n < 1000:
+        hundreds, rest = divmod(n, 100)
+        words = f"{_ONES[hundreds]} hundred"
+        return words + (f" and {_number_words(rest)}" if rest else "")
+    thousands, rest = divmod(n, 1000)
+    words = f"{_number_words(thousands)} thousand"
+    if not rest:
+        return words
+    return words + (" and " if rest < 100 else " ") + _number_words(rest)
+
+
+def _degree_words(m: re.Match[str]) -> str:
+    sign, whole, fraction = m.groups()
+    words = ("minus " if sign else "") + _number_words(int(whole))
+    if fraction:
+        words += " point " + " ".join(_ONES[int(d)] for d in fraction)
+    return words
+
+
+def _speakable(sentence: str) -> str:
+    sentence = sentence.replace("\u202f", " ").replace("\u00a0", " ")
+    sentence = _TEMPERATURE_UNIT.sub(
+        lambda m: _UNIT_WORDS[next(g for g in m.groups() if g)], sentence
+    )
+    return _DEGREE_VALUE.sub(_degree_words, sentence)
+
 
 @dataclass(frozen=True, slots=True)
 class _TtsResponseBoundary:
@@ -283,6 +329,7 @@ class StreamingTtsProcessor(FrameProcessor):
                 await self._dispatch_sentence(sentence, pid=pid)
 
     async def _dispatch_sentence(self, sentence: str, *, pid: str) -> None:
+        sentence = _speakable(sentence)
         logger.info("tts sentence dispatch pid={!r} len={}", pid, len(sentence))
         queue = self._ensure_sender(pid)
         st = self._state(pid)
