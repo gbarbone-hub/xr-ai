@@ -42,6 +42,8 @@ class StateField:
     description: str
     initial: Any = None
     initialized: bool = False
+    stamp: str | None = None
+    """``now`` makes the store write the commit time in epoch microseconds."""
 
     def accepts(self, value: Any) -> bool:
         """Return whether a value satisfies this field's declared type."""
@@ -100,6 +102,8 @@ class Step:
     enter_message: str
     complete_message: str
     skip_message: str
+    atomic: bool = False
+    """Reject observation commits that change state without completing."""
 
     @property
     def context_fields(self) -> tuple[str, ...]:
@@ -199,7 +203,12 @@ def _fields(raw: dict[str, Any]) -> dict[str, StateField]:
             description=str(item.get("description", "")).strip(),
             initial=copy.deepcopy(item.get("initial")),
             initialized="initial" in item,
+            stamp=item.get("stamp"),
         )
+        if field.stamp not in (None, "now"):
+            raise ValueError(f"state.{name}.stamp must be now")
+        if field.stamp and kind != "integer":
+            raise ValueError(f"state.{name}.stamp requires type integer")
         if field.initialized and not field.accepts(field.initial):
             raise ValueError(f"state.{name}.initial must be {kind}")
         fields[str(name)] = field
@@ -293,6 +302,7 @@ def _step(value: Any, fields: dict[str, StateField]) -> Step:
         enter_message=str(messages.get("enter", "")).strip(),
         complete_message=str(messages.get("complete", "")).strip(),
         skip_message=str(messages.get("skip", "")).strip(),
+        atomic=_parse_bool(raw.get("atomic", False), f"steps.{step_id}.atomic"),
     )
 
 

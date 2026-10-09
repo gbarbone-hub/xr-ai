@@ -69,6 +69,13 @@ _PROMPTS = Path(__file__).resolve().parent / "prompts"
 _OBSERVATION_PROMPT = _PROMPTS / "guidance_observation.txt"
 _VOICE_PROMPT = _PROMPTS / "guidance_voice.txt"
 _POLL_INTERVAL_S = 0.25
+_CAMERA_LOST_NOTICE = (
+    "I've lost the camera feed. Check the glasses connection and I'll keep "
+    "watching once it's back."
+)
+_CAMERA_ERROR_WINDOW_S = 15.0
+_CAMERA_NOTICE_INTERVAL_S = 30.0
+
 
 
 class _TriggerResult(BaseModel):
@@ -321,6 +328,8 @@ class GuidanceAgent(Agent):
                         "agent.observation_error",
                         str(exc),
                     )
+                    if "FrameUnavailable" in str(exc):
+                        _note_camera_loss(session)
                 await self._flush(session)
             await asyncio.sleep(_POLL_INTERVAL_S)
 
@@ -685,3 +694,14 @@ def _timestamp_us() -> int:
 
 
 __all__ = ["GuidanceAgent"]
+
+
+def _note_camera_loss(session: WorkflowSession) -> None:
+    """Speak once per outage when consecutive observations get no frame."""
+
+    now = monotonic_now()
+    repeated = now - session.camera_error_at <= _CAMERA_ERROR_WINDOW_S
+    session.camera_error_at = now
+    if repeated and now - session.camera_notice_at >= _CAMERA_NOTICE_INTERVAL_S:
+        session.camera_notice_at = now
+        session.notices.append(_CAMERA_LOST_NOTICE)

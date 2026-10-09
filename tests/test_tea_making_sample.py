@@ -9,6 +9,7 @@ import asyncio
 import importlib.util
 import json
 import sys
+import time
 from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
@@ -697,7 +698,7 @@ def test_workflow_enforces_consecutive_model_judgments() -> None:
 
 
 @pytest.mark.asyncio
-async def test_temperature_threshold_is_independent_of_tea_target() -> None:
+async def test_temperature_threshold_tool_compares_strictly() -> None:
     workflow = load_workflow(_SAMPLE / "yaml/workflow.yaml")
     tool = temperature_threshold_tool()
 
@@ -718,9 +719,15 @@ async def test_temperature_threshold_is_independent_of_tea_target() -> None:
 
     assert at_threshold.above is False
     assert above_threshold.above is True
-    assert workflow.step("heat_water").agent.tools == (
-        "temperature__threshold",
-    )
+    assert workflow.step("heat_water").agent.tools == ("temperature__verify",)
+
+
+def test_kettle_setting_snaps_to_fahrenheit_presets() -> None:
+    from tea_making_worker.workflow_state import _kettle_setting_f  # pyright: ignore[reportMissingImports]
+
+    assert [_kettle_setting_f(c) for c in (35, 80, 85, 93, 98, 100, 105)] == [
+        104, 176, 185, 203, 212, 212, 212,
+    ]
 
 
 def _commit_response(
@@ -924,20 +931,13 @@ async def test_malformed_commit_preserves_positive_judgment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_steeping_llm_calls_clock_before_confirming_start() -> None:
+async def test_steeping_start_time_is_stamped_by_the_workflow() -> None:
+    stale_us = 1_719_784_560_000_000
+
     class Llm:
         async def chat(self, messages, **_kwargs):
-            if messages[-1].role == "user":
-                return ChatResponse(
-                    "",
-                    None,
-                    [ToolCall(id="now-1", name="clock__now", arguments="{}")],
-                    "tool_calls",
-                    {},
-                )
-            now = json.loads(messages[-1].content)["epoch_us"]
             return _commit_response(
-                {"steeping_started_at_us": now, "steeping_started": True}
+                {"steeping_started_at_us": stale_us, "steeping_started": True}
             )
 
     guidance = _guidance_for_observation(Llm())
@@ -947,13 +947,28 @@ async def test_steeping_llm_calls_clock_before_confirming_start() -> None:
     guidance.store.advance(session, skip=True)
     guidance.store.advance(session, skip=True)
 
+    before_us = time.time_ns() // 1_000
     caption = "The sachet is floating in the liquid inside the cup."
     await _observe_caption(guidance, session.participant_id, caption)
-    assert session.state["steeping_started"] is False
-
-    await _observe_caption(guidance, session.participant_id, caption)
     assert session.state["steeping_started"] is True
-    assert session.state["steeping_started_at_us"] > 0
+    assert session.state["steeping_started_at_us"] >= before_us
+
+
+def test_atomic_step_rejects_partial_commits() -> None:
+    workflow = load_workflow(_SAMPLE / "yaml/workflow.yaml")
+    store = WorkflowStore(workflow)
+    session = store.get("participant-atomic")
+    store.start(session)
+
+    result = store.commit(
+        session,
+        {"tea_name": "unknown", "steep_duration_s": 0, "tea_ready": False},
+        "boiling water indicates 100 degrees",
+    )
+
+    assert result.accepted is False
+    assert session.state.get("tea_name") is None
+    assert store.drain_notices(session) == ()
 
 
 def test_guidance_exposes_one_foreground_stack_at_a_time() -> None:

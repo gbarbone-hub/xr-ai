@@ -29,11 +29,12 @@ state:
     initial: false
   heating_started:
     type: boolean
-    description: Whether a heater-on indicator or unit-bearing temperature was seen.
+    description: Whether the kettle display reached the target setting.
     initial: false
   steeping_started_at_us:
     type: integer
-    description: Start time returned by clock__now.
+    description: Steeping start time, set by the workflow when steeping starts.
+    stamp: now
   steeping_started:
     type: boolean
     description: Whether tea is immersed and its start time is recorded.
@@ -54,23 +55,27 @@ steps:
       arguments:
         question: >-
           Read the front label brand and tea/blend name, plus visible brewing
-          temperature/time. Ignore slogans, claims, bag count, weight, and
+          temperature/time, including words such as boiling water. Ignore slogans, claims, bag count, weight, and
           badges. Transcribe exactly; never infer. If no brand or tea/blend is
           legible, say label unreadable.
       result_field: answer
     evidence:
       pattern: "^accepted$"
       consecutive: 1
+    atomic: true
     agent:
       prompt: >-
-        Identify tea only from the current caption, never state or RAG.
-        If the tea name is unreadable, commit empty updates; do not retrieve or
-        write placeholder values. Prefer
-        visible values. If temperature/time is missing,
-        call rag_lookup once with "<exact name> water temperature steep time",
-        top_k 2; accept only a section naming it. If every writable field is
-        supported, commit all with tea_ready true. Otherwise commit nothing;
-        never write tea_ready false.
+        Commit all five fields at once with tea_ready true, or commit empty
+        updates with no message. Never save a partial result. tea_name is the
+        brand and blend exactly as the current caption reads it; if the caption
+        says the label is unreadable or names no tea, commit empty updates
+        with unknown evidence. Once the name is known, use any temperature or
+        steep time printed in the caption, with guidance_source package.
+        Store Celsius: convert Fahrenheit, treat boiling as 100, and use the
+        upper value of a range. For anything not printed, call rag_lookup once
+        with "<tea name> water temperature steep time", top_k 2, and use the
+        entry for that tea or its style, such as black, green, or herbal, with
+        guidance_source tea guide. Steep time is in seconds.
       tools: [rag_lookup]
     voice:
       prompt: >-
@@ -79,7 +84,9 @@ steps:
         drink has been prepared.
         If the exact name is unknown, inspect the current frame. Retrieve only
         missing temperature or duration after the exact name is known. Never
-        replace package values. Answer only what was asked.
+        replace package values. Speak temperatures only in degrees Fahrenheit;
+        convert any Celsius value and never say Celsius. Answer only what was
+        asked.
       tools: [current_view, rag_lookup]
     complete_when: {tea_ready: true}
     next: fill_water
@@ -91,7 +98,7 @@ steps:
       tea_ready: true
     messages:
       enter: Hold the tea package or tag in view so I can read it.
-      complete: I found the tea instructions. Say next when ready.
+      complete: I found the tea instructions. Say "Agent, next" when ready.
       skip: I will use generic tea defaults.
 
   - id: fill_water
@@ -103,9 +110,12 @@ steps:
       interval_s: 2
       arguments:
         question: >-
-          Describe the visible interior and contents of the kettle or pot.
-          State whether water is visible inside and what supports that reading.
-          If the contents are unclear, say so. Never infer.
+          The kettle body is opaque or tinted, so water is hard to see through
+          the walls. Look for direct cues: a water surface, shine, or ripples
+          seen through the open lid or spout; a water line in a side level
+          window or gauge; or water pouring into it. State which cue is visible.
+          If none is visible, say whether the lid is closed, the opening is out
+          of view, or the gauge is not visible. Never infer.
       result_field: answer
     evidence:
       pattern: "^accepted$"
@@ -113,22 +123,30 @@ steps:
     agent:
       prompt: >-
         Judge the fresh caption semantically without requiring particular
-        words. Set water_filled true when it reasonably shows water inside the
-        vessel. Otherwise commit empty updates and message.
+        words. The kettle is opaque or tinted, so accept any direct cue: a
+        water surface, shine, or ripples through the opening, a water line in a
+        level window or gauge, or water pouring in. Set water_filled true for
+        such a cue. If the caption says the lid is closed, the opening or gauge
+        is out of view, or contents are unclear, commit empty updates with
+        unknown evidence. Use rejected evidence only for a visibly empty vessel.
       tools: []
     voice:
       prompt: >-
         Give instructions or verify with current_view. A user report is not
         visual confirmation. Confirm filled only from state water_filled or a
-        current view showing the vessel interior and concrete water cues;
-        otherwise say it is not yet visually confirmed.
+        current view showing concrete water cues. The kettle is opaque or
+        tinted, so if water is not yet confirmed, coach the user with one
+        concrete tip: fill up near the max line, open the lid and look down
+        into it, tilt it toward the light, or show the water level window on
+        the side. If they say it is
+        full and you still cannot confirm, suggest saying skip.
       tools: [current_view]
     complete_when: {water_filled: true}
     next: heat_water
     state_on_skip: {water_filled: true}
     messages:
-      enter: Fill a kettle or pot with fresh water and keep it in view.
-      complete: The vessel has water. Say next when ready.
+      enter: Fill the kettle with fresh water up near the max line, then open the lid and look down into it so I can see the water.
+      complete: The vessel has water. Say "Agent, next" when ready.
       skip: I will assume the vessel is filled.
 
   - id: heat_water
@@ -140,41 +158,51 @@ steps:
       interval_s: 2
       arguments:
         question: >-
-          Describe the visible kettle or thermometer display and transcribe its
-          current numeric reading and unit. If either is unclear, say so. Do not
-          confuse a printed target temperature with the current reading.
+          Transcribe the number on the kettle's digital display. The display is
+          in degrees Fahrenheit even if no unit symbol is shown. Say whether
+          it looks like the current water temperature or a set target being
+          adjusted, for example flashing or just after a button press. If the
+          display is not legible, say so. Never infer.
       result_field: answer
     evidence:
       pattern: "^accepted$"
       consecutive: 2
     agent:
       prompt: >-
-        This step detects that heating is underway; it does not wait for the tea
-        target temperature. Ignore target_temperature_c when deciding this
-        step. For every fresh current reading with an explicit Celsius or
-        Fahrenheit unit, first call temperature__threshold with that exact
-        reading and a threshold_c of 50. If its above result is true, commit
-        heating_started true. If above is false, commit empty updates and
-        message with rejected evidence. For a target value, ambiguous unit,
-        missing reading, or unclear current-versus-target value, do not call the
-        tool; commit empty updates and message with unknown evidence so it does
-        not erase a prior confirmed reading.
-      tools: [temperature__threshold]
+        This step completes when the water reaches the tea target. The kettle
+        display is in Fahrenheit, so treat a bare number on it as Fahrenheit.
+        For a fresh current reading, first call temperature__verify with that
+        exact number and its unit. If ready is true, commit heating_started
+        true. If ready is false, commit empty updates and message with rejected
+        evidence. For a set target being adjusted, a flashing value, a missing
+        or illegible reading, or an unclear current-versus-target value, do not
+        call the tool; commit empty updates and message with unknown evidence.
+      tools: [temperature__verify]
     voice:
       prompt: >-
-        Explain target from state. For a reading, call current_view and
+        The kettle displays only Fahrenheit and is set with its plus and minus
+        buttons to one of 104, 113, 122, 131, 140, 149, 158, 167, 176, 185,
+        194, 203, or 212. Convert target_temperature_c to Fahrenheit (F = C x
+        9/5 + 32) and always say the nearest of those settings. Never say
+        Celsius. To explain how to set it, tell the user to press plus or minus
+        until the display shows that number, then start the kettle. I watch the
+        display and announce when the water is ready; the user does not need to
+        ask. For questions about the target or whether it is right, answer from
+        state with its source, for example the package or the general tea
+        guide, without calling a tool. For a reading, call current_view and
         repeat the visible number and unit; do not verify. For hot-enough
         checks, call current_view, then temperature__verify only with an exact
         number and Celsius or Fahrenheit unit. Report result. If missing,
-        say the reading is unavailable.
+        say you cannot read the kettle display yet. Report verify results with
+        the Fahrenheit fields.
       tools: [current_view, temperature__verify]
     complete_when: {heating_started: true}
     next: start_steeping
     state_on_skip: {heating_started: true}
     messages:
-      enter: Heat the water to {{ target_temperature_c | temperature_c }}.
-      complete: Heating is underway. Wait for the water to reach the target temperature.
-      skip: I will assume heating has started.
+      enter: Press plus or minus until the kettle shows {{ target_temperature_c | kettle_f }}, then start heating. I'll watch the display and tell you when it's ready.
+      complete: The water has reached {{ target_temperature_c | kettle_f }}. Say "Agent, next" when you're ready to steep.
+      skip: I will assume the water is hot.
 
   - id: start_steeping
     title: Start steeping
@@ -185,41 +213,43 @@ steps:
       interval_s: 2
       arguments:
         question: >-
-          Look for two separately visible facts in one vessel: a water surface
-          or level; and a tea bag, infuser, or leaves entering or immersed in
-          that water. If either water or tea-water contact is not visible, say
-          it is unconfirmed. Note hazards.
+          Look into the mug or cup. Report each visible cue: liquid in the
+          mug; liquid tinted amber or brown like tea; a tea bag or its string
+          and paper tag hanging over the rim; a tea bag in the liquid. A
+          submerged bag is often hidden, so report the cues you see. If the mug
+          or its contents are not visible, say so. Never infer.
       result_field: answer
     evidence:
       pattern: "^accepted$"
-      consecutive: 2
+      consecutive: 1
     agent:
       prompt: >-
-        Judge when steeping starts, not when it finishes. Treat unconfirmed,
-        unknown, unclear, or missing visual evidence as a hard stop: do not call
-        clock__now, and commit empty updates and message with unknown evidence.
-        Only when the fresh caption explicitly confirms both visible liquid and
-        tea visibly contacting that liquid inside the same vessel, first call
-        clock__now. Nearby, above, or outside the liquid does not count. Then
-        commit exactly its epoch_us as steeping_started_at_us with
-        steeping_started true. For any other caption, do not infer contact from
-        context or prior state; commit empty updates and message. Never invent or
-        replace a start time.
-      tools: [clock__now]
+        Judge when steeping starts, not when it finishes. Commit
+        steeping_started true when the fresh caption shows liquid in the mug
+        together with any tea cue: tinted amber or brown liquid, a tea bag in
+        the liquid, or a tea bag string or tag hanging over the rim of a mug
+        containing liquid. The workflow records the start time; never write
+        steeping_started_at_us. If the mug is empty, commit empty updates with
+        rejected evidence. If the mug or its contents are not visible or the
+        caption is unclear, commit empty updates with unknown evidence.
+      tools: []
     voice:
       prompt: >-
-        Give instructions or verify with current_view. A report or tea item in
-        a vessel is not confirmation. Require both visible water and visible
-        tea-water contact. The observation loop, not this answer, starts the
-        timer.
+        The tea steeps in the user's mug or cup, never in the kettle: tell them
+        to put the tea bag in the mug and pour the hot water over it. Give
+        instructions or verify with current_view. A report or tea item in a
+        mug is not confirmation. Water in the mug with tinted liquid or a tea
+        bag string over the rim confirms it. If it is not yet confirmed, coach
+        one tip: hold the mug in view and look down into it. The observation
+        loop, not this answer, starts the timer.
       tools: [current_view]
     complete_when: {steeping_started: true}
     next: steep_timer
     complete_on_skip: true
     state_on_skip: {steeping_started: true}
     messages:
-      enter: Put the tea in the water; I will start the timer when I see it immersed.
-      complete: Steeping timer started. Say next to monitor it.
+      enter: Put the tea bag in your mug or cup and pour in the hot water. I'll start the timer when I see the tea immersed.
+      complete: I see the tea steeping and started the timer for {{ steep_duration_s | duration }}. Say "Agent, next" and I'll tell you when it's done.
       skip: Steeping detection and the timer were skipped.
 
   - id: steep_timer
@@ -250,5 +280,5 @@ steps:
     state_on_skip: {steeping_complete: true}
     messages:
       enter: Steep for {{ steep_duration_s | duration }}.
-      complete: Steeping is complete. Remove the tea, then say next to finish.
+      complete: Steeping is complete. Remove the tea, then say "Agent, next" to finish.
       skip: Timer skipped; remove the tea when it tastes right.

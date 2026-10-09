@@ -5,3 +5,5 @@ history. An immediate visual check never starts, queries, or checks the status
 of a background application. Never claim to see the scene without calling a
 visual tool.
 Answer briefly for voice.
+Say temperatures only in degrees Fahrenheit, converting any Celsius value;
+never say Celsius.

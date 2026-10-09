@@ -40,6 +40,8 @@ class WorkflowSession:
     next_tick: float = 0.0
     evidence_hits: int = 0
     notices: list[str] = field(default_factory=list)
+    camera_error_at: float = 0.0
+    camera_notice_at: float = 0.0
     events: list[WorkflowEvent] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
@@ -135,7 +137,7 @@ class WorkflowStore:
             return f"{self.workflow.name} guidance is idle."
         step = self.workflow.step(session.step_id)
         suffix = (
-            " Complete; say next when ready." if step.is_complete(session.state) else ""
+            " Complete; say \"Agent, next\" when ready." if step.is_complete(session.state) else ""
         )
         return f"Current step: {step.title}.{suffix}"
 
@@ -230,6 +232,7 @@ class WorkflowStore:
 
         step = self.active_step(session)
         was_complete = step.is_complete(session.state)
+        updates = self._stamp(session, step, updates)
         invalid = self._invalid_commit_patch(session, step, updates)
         if invalid:
             self._event(session, "step.commit_rejected", invalid)
@@ -349,6 +352,24 @@ class WorkflowStore:
                 return f"{name} must be {expected.type}"
         return ""
 
+    def _stamp(
+        self,
+        session: WorkflowSession,
+        step: Step,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Replace model values for ``stamp: now`` fields with the real time."""
+
+        fields = self.workflow.state_fields
+        stamped = [n for n in step.writes if fields[n].stamp == "now"]
+        if not stamped:
+            return updates
+        updates = {n: v for n, v in updates.items() if n not in stamped}
+        if step.is_complete({**session.state, **updates}):
+            now_us = time.time_ns() // 1_000
+            updates.update({n: now_us for n in stamped})
+        return updates
+
     def _invalid_commit_patch(
         self,
         session: WorkflowSession,
@@ -360,6 +381,8 @@ class WorkflowStore:
             return invalid
         candidate = {**session.state, **updates}
         if not step.is_complete(candidate):
+            if step.atomic and updates:
+                return "partial commit; commit every field at once or nothing"
             return ""
         missing = [name for name in step.writes if name not in candidate]
         return f"completion requires fields: {missing}" if missing else ""
@@ -404,11 +427,21 @@ class WorkflowStore:
                 return str(value)
             if formatter == "temperature_c":
                 return f"{_number(value)} degrees Celsius"
+            if formatter == "temperature_f":
+                return f"{round(float(value) * 9 / 5 + 32)} degrees Fahrenheit"
+            if formatter == "kettle_f":
+                return f"{_kettle_setting_f(float(value))} degrees Fahrenheit"
             if formatter == "duration":
                 return _duration(int(value))
             raise ValueError(f"unknown message formatter: {formatter}")
 
         return _TOKEN.sub(replace, text).strip()
+
+
+def _kettle_setting_f(celsius: float) -> int:
+    """Snap to the demo kettle's presets: 40-100 C in 5 C steps (104-212 F)."""
+    step_c = min(max(round(celsius / 5) * 5, 40), 100)
+    return round(step_c * 9 / 5 + 32)
 
 
 def _duration(seconds: int) -> str:

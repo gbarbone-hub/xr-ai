@@ -23,7 +23,7 @@ from xr_ai_tools.vision import (
     ImageQueryTool,
 )
 
-from .workflow_state import WorkflowSession, WorkflowStore
+from .workflow_state import WorkflowSession, WorkflowStore, _kettle_setting_f
 
 ChangeCallback = Callable[[], Awaitable[None]]
 _NAMED_TOOL_NAMES = frozenset(
@@ -88,6 +88,8 @@ class TemperatureVerifyResult(BaseModel):
 
     reading_c: float
     target_c: float
+    reading_f: float
+    target_f: float
     ready: bool
 
 
@@ -269,7 +271,9 @@ def temperature_verify_tool(
     async def verify(
         request: TemperatureVerifyRequest,
     ) -> TemperatureVerifyResult:
-        target_c = float(session.state["target_temperature_c"])
+        # Compare against the kettle preset the user can actually select.
+        target_f = _kettle_setting_f(float(session.state["target_temperature_c"]))
+        target_c = (target_f - 32) * 5 / 9
         reading_c = (
             request.reading
             if request.unit == "celsius"
@@ -278,6 +282,8 @@ def temperature_verify_tool(
         return TemperatureVerifyResult(
             reading_c=reading_c,
             target_c=target_c,
+            reading_f=round(reading_c * 9 / 5 + 32, 1),
+            target_f=target_f,
             ready=reading_c >= target_c,
         )
 
@@ -285,7 +291,7 @@ def temperature_verify_tool(
         "temperature__verify",
         (
             "Compare an exact observed Celsius or Fahrenheit reading with "
-            "the active tea target."
+            "the active tea target, snapped to the kettle's preset settings."
         ),
         TemperatureVerifyRequest,
         TemperatureVerifyResult,

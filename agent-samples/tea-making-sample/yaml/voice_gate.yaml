@@ -6,3 +6,6 @@ magic_phrases:
   - hey agent
 listening_chime: true
 followup_grace_s: 5.0
+greeting: >-
+  Hi, I'm an agent that can guide you through tasks in the real world.
+  Say "Agent, start making tea" to begin.
