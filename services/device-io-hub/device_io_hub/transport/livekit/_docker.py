@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -46,7 +47,7 @@ rtc:
   udp_port: {lk_port_udp}
   use_external_ip: {lk_use_external_ip}
   skip_external_ip_validation: {lk_skip_external_ip_validation}
-keys:
+{lk_interfaces}keys:
   {api_key}: {api_secret}
 logging:
   json: false
@@ -73,9 +74,33 @@ def _render_livekit_config(cfg: LiveKitConnectorConfig) -> str:
         lk_skip_external_ip_validation=str(
             cfg.lk_skip_external_ip_validation
         ).lower(),
+        lk_interfaces=_interfaces_block(cfg),
         api_key=cfg.api_key,
         api_secret=cfg.api_secret,
     )
+
+
+def _docker_interfaces(net_dir: Path = Path("/sys/class/net")) -> list[str]:
+    """Return host interfaces created by Docker bridge networks."""
+
+    try:
+        names = sorted(p.name for p in net_dir.iterdir())
+    except OSError:
+        return []
+    return [
+        n for n in names
+        if n == "docker0" or re.fullmatch(r"br-[0-9a-f]{12}", n)
+    ]
+
+
+def _interfaces_block(cfg: LiveKitConnectorConfig) -> str:
+    if not cfg.lk_exclude_docker_interfaces:
+        return ""
+    excluded = _docker_interfaces()
+    if not excluded:
+        return ""
+    names = "".join(f"      - {n}\n" for n in excluded)
+    return f"  interfaces:\n    excludes:\n{names}"
 
 
 def _write_livekit_config(path: Path, cfg: LiveKitConnectorConfig) -> None:

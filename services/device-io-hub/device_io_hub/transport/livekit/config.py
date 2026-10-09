@@ -79,6 +79,10 @@ class LiveKitConnectorConfig:
     # Some cloud NATs do not support the self-ping LiveKit uses to validate the
     # discovered IP. This setting has an effect only with external IP enabled.
     lk_skip_external_ip_validation: bool = False
+    # Keep Docker bridge interfaces (docker0, br-<id>) out of ICE candidates.
+    # Otherwise clients may pair with an unreachable bridge address and stall
+    # media when ICE later switches to the LAN address.
+    lk_exclude_docker_interfaces: bool = True
 
     # ── Internal URL for the Python room client (direct WS, no proxy) ─────────
     lk_internal_url: str = "ws://127.0.0.1:7880"

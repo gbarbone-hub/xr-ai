@@ -28,6 +28,9 @@ lk_use_external_ip: false
 # Enable only when the cloud NAT does not support LiveKit's public-IP self-ping
 # validation. Requires lk_use_external_ip: true.
 lk_skip_external_ip_validation: false
+# Keep Docker bridge interfaces out of ICE candidates (recommended on hosts
+# running Docker networks).
+lk_exclude_docker_interfaces: true
 
 # ── Return audio pacing ───────────────────────────────────────────────────────
 # Maximum queued TTS audio per participant. Built-in voice output is paced
