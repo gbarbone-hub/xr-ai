@@ -536,7 +536,7 @@ class GuidanceAgent(Agent):
                         message="observation is stale",
                         revision=session.revision,
                     )
-                updates = dict(request.updates)
+                updates = self.store._stamp(session, step, dict(request.updates))
                 invalid = self.store._invalid_commit_patch(
                     session,
                     step,

@@ -658,24 +658,6 @@ def test_skipping_completed_step_preserves_verified_state() -> None:
     assert "generic" not in message.lower()
 
 
-def test_skipping_steeping_detection_also_skips_the_timer() -> None:
-    workflow = load_workflow(_SAMPLE / "yaml/workflow.yaml")
-    store = WorkflowStore(workflow)
-    session = store.get("participant-skip")
-    store.start(session)
-    store.advance(session, skip=True)
-    store.advance(session, skip=True)
-    store.advance(session, skip=True)
-    assert session.step_id == "start_steeping"
-
-    message = store.advance(session, skip=True)
-
-    assert session.active is False
-    assert session.step_id is None
-    assert "guidance complete" in message.lower()
-    assert "steeping_started_at_us" not in session.state
-
-
 def test_workflow_enforces_consecutive_model_judgments() -> None:
     workflow = load_workflow(_SAMPLE / "yaml/workflow.yaml")
     store = WorkflowStore(workflow)
@@ -935,23 +917,46 @@ async def test_steeping_start_time_is_stamped_by_the_workflow() -> None:
     stale_us = 1_719_784_560_000_000
 
     class Llm:
-        async def chat(self, messages, **_kwargs):
-            return _commit_response(
-                {"steeping_started_at_us": stale_us, "steeping_started": True}
-            )
+        def __init__(self, updates):
+            self.updates = updates
 
-    guidance = _guidance_for_observation(Llm())
-    session = guidance.store.get("participant-steeping-judgment")
-    guidance.store.start(session)
-    guidance.store.advance(session, skip=True)
-    guidance.store.advance(session, skip=True)
-    guidance.store.advance(session, skip=True)
+        async def chat(self, messages, **_kwargs):
+            return _commit_response(self.updates)
+
+    caption = "The sachet is floating in the liquid inside the cup."
+    # The model omits the stamped field (as prompted) or writes a stale value.
+    for updates in (
+        {"steeping_started": True},
+        {"steeping_started_at_us": stale_us, "steeping_started": True},
+    ):
+        guidance = _guidance_for_observation(Llm(updates))
+        session = guidance.store.get("participant-steeping-judgment")
+        guidance.store.start(session)
+        guidance.store.advance(session, skip=True)
+        guidance.store.advance(session, skip=True)
+        guidance.store.advance(session, skip=True)
+
+        before_us = time.time_ns() // 1_000
+        await _observe_caption(guidance, session.participant_id, caption)
+        assert session.state["steeping_started"] is True
+        assert session.state["steeping_started_at_us"] >= before_us
+
+
+def test_skipping_steep_detection_starts_the_timer() -> None:
+    workflow = load_workflow(_SAMPLE / "yaml/workflow.yaml")
+    store = WorkflowStore(workflow)
+    session = store.get("participant-manual-timer")
+    store.start(session)
+    for _ in range(3):
+        store.advance(session, skip=True)
+    assert session.step_id == "start_steeping"
 
     before_us = time.time_ns() // 1_000
-    caption = "The sachet is floating in the liquid inside the cup."
-    await _observe_caption(guidance, session.participant_id, caption)
-    assert session.state["steeping_started"] is True
+    message = store.advance(session, skip=True)
+
+    assert session.step_id == "steep_timer"
     assert session.state["steeping_started_at_us"] >= before_us
+    assert message.startswith("Okay, starting the timer now.")
 
 
 def test_atomic_step_rejects_partial_commits() -> None:

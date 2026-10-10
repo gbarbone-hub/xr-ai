@@ -241,16 +241,17 @@ steps:
         mug is not confirmation. Water in the mug with tinted liquid or a tea
         bag string over the rim confirms it. If it is not yet confirmed, coach
         one tip: hold the mug in view and look down into it. The observation
-        loop, not this answer, starts the timer.
+        loop starts the timer when it sees the tea. If the user says the tea is
+        in the water or asks to start the timer, call workflow__advance with
+        skip true; that starts the timer now.
       tools: [current_view]
     complete_when: {steeping_started: true}
     next: steep_timer
-    complete_on_skip: true
     state_on_skip: {steeping_started: true}
     messages:
       enter: Put the tea bag in your mug or cup and pour in the hot water. I'll start the timer when I see the tea immersed.
       complete: I see the tea steeping and started the timer for {{ steep_duration_s | duration }}. Say "Agent, next" and I'll tell you when it's done.
-      skip: Steeping detection and the timer were skipped.
+      skip: Okay, starting the timer now.
 
   - id: steep_timer
     title: Wait for steeping

@@ -157,6 +157,10 @@ class WorkflowStore:
             if invalid:
                 raise ValueError(f"invalid skip state for {step.id}: {invalid}")
             candidate.update(copy.deepcopy(step.state_on_skip))
+            now_us = time.time_ns() // 1_000
+            for name in step.writes:
+                if self.workflow.state_fields[name].stamp == "now":
+                    candidate[name] = now_us
         next_step = None if skipping and step.complete_on_skip else step.next_step
         transition = self._transition_message(next_step, candidate)
         session.state = candidate
