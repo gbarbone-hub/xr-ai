@@ -258,7 +258,10 @@ def make_handler(args: argparse.Namespace):
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--port", type=int, default=8095)
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument(
+        "--host", default="0.0.0.0",
+        help="bind address; the default serves the LAN so a laptop can reach a remote dev box",
+    )
     p.add_argument("--events", default="http://127.0.0.1:8092", help="sample event viewer base URL")
     p.add_argument("--hub", default="https://localhost:8080", help="device-io-hub base URL (token + LiveKit)")
     p.add_argument("--livekit-port", type=int, default=7880, help="LiveKit plain ws port on the hub host")
