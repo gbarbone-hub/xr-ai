@@ -93,6 +93,9 @@ talking” to close the conversation. The optional event viewer is available at
 writes an SOP bundle below `artifacts/runs/`, including consumed inference images
 and step records. See [SOP run capture](https://nvidia.github.io/xr-ai/main/reference/tea-making-sample.html#sop-run-capture).
 
+An optional read-only presentation dashboard (live camera, transcript, workflow
+step, models in use) lives in [dashboard/](dashboard/README.md).
+
 The local models remain running after the sample stops. From this directory,
 stop them with `uv run --project model-servers tea_making_sample_model_servers --stop`.
 

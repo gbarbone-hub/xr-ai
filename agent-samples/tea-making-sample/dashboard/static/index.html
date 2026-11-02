@@ -1,0 +1,289 @@
+<!--
+  SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Presentation View</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #131a22; --panel-2: #1a232d; --line: #263341;
+    --text: #e8eef4; --muted: #8a9bad; --accent: #76b900; --accent-dim: #3d5e00;
+    --user: #2f81f7; --agent: #76b900; --warn: #e3a008; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  .grow { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .dot.bad { background: var(--err); }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; padding: 16px 20px; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .card:not([style*='flex:1']) { flex-shrink: 0; }
+  .card > h2 { margin: 0; padding: 10px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  /* camera */
+  .camera { flex: 1; position: relative; background: #000; min-height: 0; }
+  .camera video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .camera .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 24px; }
+  .camera.live .overlay { display: none; }
+  .live-badge { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.6); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: 1px; display: none; align-items: center; gap: 6px; }
+  .camera.live .live-badge { display: inline-flex; }
+  .live-badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--err); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  /* steps */
+  .steps { display: flex; gap: 0; padding: 14px 16px 16px; }
+  .step { flex: 1; position: relative; text-align: center; font-size: 13px; color: var(--muted); padding-top: 30px; }
+  .step::before { content: attr(data-n); position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 24px; height: 24px; border-radius: 50%; background: var(--panel-2); border: 2px solid var(--line); display: grid; place-items: center; font-weight: 700; color: var(--muted); z-index: 1; }
+  .step::after { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+  .step:first-child::after { display: none; }
+  .step.done { color: var(--text); }
+  .step.done::before { content: "✓"; background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+  .step.done::after, .step.active::after { background: var(--accent); }
+  .step.active { color: var(--text); font-weight: 650; }
+  .step.active::before { background: var(--accent); border-color: var(--accent); color: #0b0f14; box-shadow: 0 0 0 5px rgba(118,185,0,.2); }
+  .step-msg { padding: 0 16px 14px; color: var(--muted); font-size: 14px; min-height: 22px; }
+  .step-msg b { color: var(--text); }
+  /* conversation */
+  .chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 19px; line-height: 1.35; animation: in .25s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+  .msg small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; opacity: .8; }
+  .msg.user { align-self: flex-end; background: rgba(47,129,247,.18); border: 1px solid rgba(47,129,247,.5); border-bottom-right-radius: 4px; }
+  .msg.user small { color: var(--user); }
+  .msg.agent { align-self: flex-start; background: rgba(118,185,0,.12); border: 1px solid rgba(118,185,0,.45); border-bottom-left-radius: 4px; }
+  .msg.agent small { color: var(--agent); }
+  .tools { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tools span { font: 12px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  h2 button { padding: 2px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .empty { margin: auto; color: var(--muted); text-align: center; }
+  /* bottom row */
+  .models { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 12px; }
+  .model { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; transition: border-color .2s, box-shadow .2s; }
+  .model .role { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .model .name { font-weight: 650; font-size: 14px; margin-top: 2px; }
+  .model .why { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .model.hot { border-color: var(--accent); box-shadow: 0 0 14px rgba(118,185,0,.35); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; overflow-y: auto; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>●</span> <span id="task" style="color:inherit">Agent</span> — live view</h1>
+  <div class="grow"></div>
+  <div class="pill"><i class="dot" id="dot-feed"></i><span id="feed-label">events…</span></div>
+  <div class="pill"><i class="dot" id="dot-cam"></i><span id="cam-label">camera…</span></div>
+</header>
+
+<main>
+  <section class="col">
+    <div class="card" style="flex:1">
+      <h2>Camera <span id="cam-src"></span></h2>
+      <div class="camera" id="camera">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="live-badge"><i></i> LIVE</div>
+        <div class="overlay"><div id="cam-msg">Waiting for the camera stream…</div>
+          <button id="webcam-btn" hidden>Use this computer's webcam instead</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Current step</h2>
+      <div class="steps" id="steps"></div>
+      <div class="step-msg" id="step-msg"></div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="card" style="flex:1">
+      <h2>Conversation <button id="clear-btn" title="Clear transcript">Clear</button></h2>
+      <div class="chat" id="chat"><div class="empty">Say “Agent, start making tea” to begin.</div></div>
+    </div>
+    <div class="card">
+      <h2>Models <span>highlighted when in use</span></h2>
+      <div class="models" id="models"></div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const state = { steps: [], active: -1, done: new Set(), cursor: 0, models: {}, hub: '', chatFrom: 0 };
+// Events at or before chatFrom are history the presenter cleared; remembered across reloads.
+try { state.chatFrom = Number(localStorage.getItem('pv.chatFrom')) || 0; } catch {}
+
+/* ---------- config ---------- */
+const cfg = await (await fetch('/api/config')).json();
+state.steps = cfg.steps; state.hub = cfg.hub;
+$('task').textContent = cfg.task.replace(/^./, (c) => c.toUpperCase());
+$('steps').replaceChildren(...cfg.steps.map((s, i) => {
+  const el = document.createElement('div');
+  el.className = 'step'; el.dataset.n = i + 1; el.textContent = s.title; el.id = 'step-' + s.id;
+  return el;
+}));
+$('models').replaceChildren(...cfg.models.map((m) => {
+  const el = document.createElement('div');
+  el.className = 'model'; el.title = m.endpoint;
+  const mk = (cls, t) => Object.assign(document.createElement('div'), { className: cls, textContent: t });
+  el.append(mk('role', m.label), mk('name', m.model), mk('why', m.purpose));
+  state.models[m.role] = el;
+  return el;
+}));
+
+/* ---------- helpers ---------- */
+function hot(...roles) {
+  for (const r of roles) {
+    const el = state.models[r]; if (!el) continue;
+    el.classList.add('hot'); clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('hot'), 2500);
+  }
+}
+function addMsg(kind, text, tools = []) {
+  const chat = $('chat');
+  chat.querySelector('.empty')?.remove();
+  const el = document.createElement('div'); el.className = 'msg ' + kind;
+  const who = Object.assign(document.createElement('small'), { textContent: kind === 'user' ? 'You' : 'Agent' });
+  el.append(who, document.createTextNode(text));
+  if (tools.length) {
+    const t = document.createElement('div'); t.className = 'tools';
+    for (const name of tools) t.append(Object.assign(document.createElement('span'), { textContent: name }));
+    el.append(t);
+  }
+  chat.append(el); chat.scrollTop = chat.scrollHeight;
+}
+function renderSteps() {
+  state.steps.forEach((s, i) => {
+    const el = $('step-' + s.id);
+    el.classList.toggle('done', state.done.has(i));
+    el.classList.toggle('active', i === state.active);
+  });
+}
+function setStepMsg(text) { $('step-msg').replaceChildren(Object.assign(document.createElement('b'), { textContent: text || '' })); }
+
+/* ---------- events ---------- */
+function handle(ev) {
+  const p = ev.payload || {};
+  const cleared = ev.sequence <= state.chatFrom;
+  switch (ev.topic) {
+    case 'foreground':
+      if (cleared) break;
+      if (p.query) { addMsg('user', p.query); hot('stt'); }
+      if (p.response) { addMsg('agent', p.response, p.tools || []); hot('llm', 'tts'); }
+      if ((p.tools || []).some((t) => /rag|search|doc/i.test(t))) hot('embedding');
+      if ((p.tools || []).some((t) => /view|vlm|image|frame/i.test(t))) hot('vlm');
+      break;
+    case 'guidance.notices':
+      if (!cleared && p.text) { addMsg('agent', p.text); hot('tts'); }
+      break;
+    case 'guidance.events': {
+      const idx = state.steps.findIndex((s) => s.id === p.step_id);
+      switch (p.event) {
+        case 'workflow.started': case 'workflow.restarted': case 'workflow.reset':
+          state.done.clear(); state.active = -1; break;
+        case 'step.enter':
+          if (idx >= 0) { for (let i = 0; i < idx; i++) state.done.add(i); state.active = idx; setStepMsg(p.message); }
+          break;
+        case 'step.commit': hot('llm', 'vlm'); break;
+        case 'workflow.complete':
+          state.steps.forEach((_, i) => state.done.add(i)); state.active = -1; setStepMsg(p.message); break;
+      }
+      renderSteps(); break;
+    }
+    case 'background.video-log': case 'background.change-watch': hot('vlm'); break;
+  }
+}
+async function poll() {
+  try {
+    const r = await fetch('/api/events?after=' + state.cursor);
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    if (data.reset) { state.chatFrom = 0; try { localStorage.removeItem('pv.chatFrom'); } catch {} $('chat').replaceChildren(); state.done.clear(); state.active = -1; renderSteps(); }
+    for (const ev of data.events) handle(ev);
+    state.cursor = data.cursor;
+    $('dot-feed').className = 'dot ok'; $('feed-label').textContent = cfg.demo ? 'demo events' : 'events live';
+  } catch {
+    $('dot-feed').className = 'dot bad'; $('feed-label').textContent = 'event feed offline';
+  }
+  setTimeout(poll, 600);
+}
+const emptyChat = () => Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Say “Agent, start making tea” to begin.' });
+$('clear-btn').onclick = () => {
+  state.chatFrom = state.cursor;
+  try { localStorage.setItem('pv.chatFrom', String(state.chatFrom)); } catch {}
+  $('chat').replaceChildren(emptyChat());
+};
+renderSteps(); poll();
+
+/* ---------- camera ---------- */
+const video = $('video');
+function cameraLive(label, src) {
+  $('camera').classList.add('live'); $('dot-cam').className = 'dot ok';
+  $('cam-label').textContent = label; $('cam-src').textContent = src || '';
+}
+function cameraDown(msg) {
+  $('camera').classList.remove('live'); $('dot-cam').className = 'dot bad';
+  $('cam-label').textContent = 'no camera'; $('cam-msg').textContent = msg; $('webcam-btn').hidden = false;
+}
+async function useWebcam() {
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+    cameraLive('local webcam', 'this computer');
+  } catch (e) { cameraDown('Webcam unavailable: ' + e.message); }
+}
+$('webcam-btn').onclick = useWebcam;
+
+async function joinHub() {
+  // Subscribe-only: we never publish, and we never attach remote audio.
+  // livekit-client is served from client-samples/web-xr/vendor (see server.py) so the
+  // page works without internet access.
+  let stage = 'loading livekit-client';
+  const step = (name) => { stage = name; $('cam-msg').textContent = name + '…'; };
+  const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms / 1000}s`)), ms))]);
+  try {
+    const { Room, RoomEvent, Track } = await within(15000, import('/vendor/livekit-client.esm.mjs'));
+    step('Requesting camera token');
+    const lk = await within(10000, fetch('/api/livekit').then((r) => r.json()));
+    if (lk.error) throw new Error(lk.error);
+    const { token, url } = lk;
+    // adaptiveStream is off: it pauses video whenever the element has no layout size.
+    const room = new Room({ adaptiveStream: false, dynacast: false });
+    const attach = (track, participant) => {
+      if (track.kind !== Track.Kind.Video) return;
+      track.attach(video);
+      video.play().catch(() => {});
+      cameraLive('stream live', participant.name || participant.identity);
+    };
+    room.on(RoomEvent.TrackSubscribed, attach);
+    room.on(RoomEvent.TrackPublished, (pub) => { if (pub.kind === Track.Kind.Video) pub.setSubscribed(true); });
+    room.on(RoomEvent.TrackUnsubscribed, (t) => { if (t.kind === Track.Kind.Video) cameraDown('Camera stream ended. Waiting for it to return…'); });
+    room.on(RoomEvent.Disconnected, () => cameraDown('Disconnected from the hub.'));
+    step(`Connecting to ${url}`);
+    await within(15000, room.connect(url, token, { autoSubscribe: true }));
+    $('cam-label').textContent = 'connected, waiting for video';
+    $('cam-msg').textContent = 'Connected to the hub. Waiting for a camera track…';
+    for (const p of room.remoteParticipants.values())
+      for (const pub of p.trackPublications.values()) {
+        if (pub.kind !== Track.Kind.Video) continue;
+        pub.setSubscribed(true);
+        if (pub.track) attach(pub.track, p);
+      }
+  } catch (e) {
+    console.error('dashboard camera failed at:', stage, e);
+    cameraDown(`Camera failed: ${stage}: ${e.message}. Check that the hub and LiveKit (port 7880) are running.`);
+  }
+}
+if (cfg.demo) useWebcam();
+else joinHub();
+</script>
+</body>
+</html>

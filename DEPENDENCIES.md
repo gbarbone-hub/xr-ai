@@ -836,6 +836,17 @@ refer to [Software bill of materials](docs/source/guides/sbom.md).
 - Commands:
   - `tea_making_sample` → `main:run`
 
+#### `tea-making-dashboard` — [`agent-samples/tea-making-sample/dashboard/`](agent-samples/tea-making-sample/dashboard/)
+
+- Python: `>=3.11,<3.15`
+- Build dependencies:
+  - `hatchling`
+- Runtime dependencies:
+  - `pyyaml`
+- Optional dependency groups: none
+- Commands:
+  - `tea_making_dashboard` → `server:main`
+
 #### `tea-making-sample-model-servers` — [`agent-samples/tea-making-sample/model-servers/`](agent-samples/tea-making-sample/model-servers/)
 
 - Python: `>=3.11,<3.15`
