@@ -85,6 +85,25 @@ def test_omni_only_forwards_configured_moe_backend(
         assert args[args.index("--moe-backend") + 1] == moe_backend
 
 
+@pytest.mark.parametrize("cfg", [{}, {"enable_prefix_caching": True}, {"enable_prefix_caching": False}])
+def test_omni_disables_prefix_caching_only_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    cfg: dict[str, bool],
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(_omni, "setup_logging", lambda *_a, **_k: None)
+    monkeypatch.setattr(_omni, "load_config", lambda: (cfg, Path("."), None))
+    monkeypatch.setattr(_omni, "resolve_model_cache", lambda *_a, **_k: Path("models"))
+    monkeypatch.setattr(_omni, "setup_hf_env", lambda *_a, **_k: None)
+    monkeypatch.setattr(_omni, "gpu_compute_major", lambda: 10)
+    monkeypatch.setattr(_omni, "serve", lambda **kwargs: captured.update(kwargs))
+
+    _omni.run()
+
+    disabled = "--no-enable-prefix-caching" in captured["extra_serve_args"]
+    assert disabled == (cfg.get("enable_prefix_caching") is False)
+
+
 @pytest.mark.parametrize(
     ("compute_major", "spark_uma", "expected_seqs"),
     [

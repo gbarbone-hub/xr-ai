@@ -29,6 +29,7 @@ Config keys (nemotron_omni_llm_server.yaml)
                                      When set, gpu_memory_utilization remains the
                                      startup free-memory admission threshold.
     enforce_eager:            bool   Skip CUDA graph capture (default: false).
+    enable_prefix_caching:    bool   vLLM automatic prefix caching (default: true).
     video_pruning_rate:       float  --video-pruning-rate (default: 0.5).
     video_fps:                int    FPS for video input sampling (default: 2).
     video_num_frames:         int    Max frames per video (default: 256).
@@ -133,6 +134,9 @@ def run() -> None:
     enforce_eager = parse_config_bool(
         cfg.get("enforce_eager", _DEFAULT_EAGER), "enforce_eager"
     )
+    prefix_caching = parse_config_bool(
+        cfg.get("enable_prefix_caching", True), "enable_prefix_caching"
+    )
     prune_rate    = float(cfg.get("video_pruning_rate", _DEFAULT_PRUNE))
     video_fps     = int(cfg.get("video_fps",        _DEFAULT_FPS))
     video_frames  = int(cfg.get("video_num_frames", _DEFAULT_FRAMES))
@@ -169,6 +173,8 @@ def run() -> None:
         extra_serve_args += ["--moe-backend", str(moe_backend)]
     if enforce_eager:
         extra_serve_args.append("--enforce-eager")
+    if not prefix_caching:
+        extra_serve_args.append("--no-enable-prefix-caching")
 
     serve(
         backend=backend,
