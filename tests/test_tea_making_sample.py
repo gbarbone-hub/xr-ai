@@ -15,8 +15,9 @@ from pathlib import Path
 import nemo_relay
 import pytest
 import yaml
-from xr_ai_interaction import ParticipantJoined, ParticipantLeft
+from xr_ai_interaction import ParticipantJoined, ParticipantLeft, ResponseOutput, UserQuery
 from xr_ai_runtime import Agent, AgentRuntime, RuntimeContext, subscribe
+from xr_ai_voice import VOICE_OUTPUT_TOPIC
 from xr_ai_web_events import WEB_EVENT_TOPIC, WebEvent, WebEventsAgent
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,7 @@ from tea_making_worker.application.tea_events import (  # noqa: E402
     GUIDANCE_RECORD_TOPIC,
     PARTICIPANT_JOINED_TOPIC,
     PARTICIPANT_LEFT_TOPIC,
+    USER_QUERY_TOPIC,
     GuidanceNotice,
     GuidanceRecord,
 )
@@ -174,6 +176,34 @@ async def test_typed_events_are_projected_to_web_topics() -> None:
     assert {participant for _event, participant in captured} == {participant_id}
     assert captured[-2][0].payload == {"event": "joined"}
     assert captured[-1][0].payload == {"event": "left"}
+
+
+@pytest.mark.asyncio
+async def test_web_adapter_projects_conversation() -> None:
+    captured: list[WebEvent] = []
+
+    class Capture(Agent):
+        @subscribe(WEB_EVENT_TOPIC)
+        async def capture(self, event: WebEvent, ctx: RuntimeContext) -> None:
+            captured.append(event)
+
+    runtime = AgentRuntime()
+    runtime.register("web-event-adapter", TeaWebEventsAgent())
+    runtime.register("capture", Capture())
+    reply = {"kind": "reply", "request_id": "r1"}
+    async with runtime:
+        await runtime.publish(USER_QUERY_TOPIC, UserQuery(text="what next", timestamp_us=1), participant_id="p")
+        await runtime.publish(
+            VOICE_OUTPUT_TOPIC, ResponseOutput(**reply, text="Fill ", response_id="a", final=False), participant_id="p"
+        )
+        await runtime.publish(
+            VOICE_OUTPUT_TOPIC, ResponseOutput(**reply, text="the kettle.", response_id="a"), participant_id="p"
+        )
+        await runtime.publish(VOICE_OUTPUT_TOPIC, ResponseOutput(kind="update", text="Ready."), participant_id="p")
+    assert [(e.topic, e.payload) for e in captured] == [
+        ("foreground", {"query": "what next"}),
+        ("foreground", {"response": "Fill the kettle."}),
+    ]
 
 
 @pytest.mark.asyncio

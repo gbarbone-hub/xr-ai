@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, JsonValue
-from xr_ai_interaction import ParticipantJoined, ParticipantLeft
+from xr_ai_interaction import ParticipantJoined, ParticipantLeft, ResponseOutput, UserQuery
 from xr_ai_runtime import Agent, RuntimeContext, subscribe
+from xr_ai_voice import VOICE_OUTPUT_TOPIC
 from xr_ai_web_events import WEB_EVENT_TOPIC, WebEvent
 
 from .tea_events import (
@@ -15,6 +16,7 @@ from .tea_events import (
     GUIDANCE_RECORD_TOPIC,
     PARTICIPANT_JOINED_TOPIC,
     PARTICIPANT_LEFT_TOPIC,
+    USER_QUERY_TOPIC,
     GuidanceNotice,
     GuidanceRecord,
 )
@@ -25,6 +27,32 @@ class TeaWebEventsAgent(Agent):
 
     def __init__(self) -> None:
         super().__init__()
+        self._streams: dict[tuple[str | None, str], list[str]] = {}
+
+    @subscribe(USER_QUERY_TOPIC)
+    async def user_query(self, query: UserQuery, ctx: RuntimeContext) -> None:
+        await self._publish_payload(
+            "foreground",
+            "Conversation",
+            {"query": query.text},
+            ctx,
+        )
+
+    @subscribe(VOICE_OUTPUT_TOPIC)
+    async def voice_output(self, output: ResponseOutput, ctx: RuntimeContext) -> None:
+        # Replies only: unprompted updates already arrive as guidance notices.
+        if output.kind != "reply":
+            return
+        text = output.text
+        if output.response_id is not None:
+            key = (ctx.metadata.participant_id, output.response_id)
+            parts = self._streams.setdefault(key, [])
+            parts.append(output.text)
+            if not output.final:
+                return
+            text = "".join(self._streams.pop(key))
+        if text.strip():
+            await self._publish_payload("foreground", "Conversation", {"response": text.strip()}, ctx)
 
     @subscribe(GUIDANCE_RECORD_TOPIC)
     async def guidance_record(
