@@ -11,7 +11,7 @@ A Clear button empties the transcript; it stays cleared across page reloads.
 
 It does **not** modify or import the agent. It consumes:
 
-- the sample's event viewer feed (`:8092`, proxied same-origin by `server.py`)
+- the sample's event viewer feed (`:8093`, proxied same-origin by `server.py`)
 - the hub's camera track, joined as a subscribe-only LiveKit participant
   (`tea-making-dashboard`) via `https://localhost:8080/token`
 - the sample's `yaml/workflow.yaml` and `yaml/models.local.json` (read-only)

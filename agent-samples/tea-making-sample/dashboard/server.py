@@ -7,7 +7,7 @@ Serves the static page, proxies the sample's read-only event feed
 (same-origin, so no CORS needed), and exposes the workflow steps and model
 roster read from the sample's own config files. Never writes to xr-ai.
 
-    python3 server.py                 # live: events from http://127.0.0.1:8092
+    python3 server.py                 # live: events from http://127.0.0.1:8093
     python3 server.py --demo          # scripted events, no stack required
 """
 
@@ -270,7 +270,7 @@ def main() -> None:
         "--host", default="0.0.0.0",
         help="bind address; the default serves the LAN so a laptop can reach a remote dev box",
     )
-    p.add_argument("--events", default="http://127.0.0.1:8092", help="sample event viewer base URL")
+    p.add_argument("--events", default="http://127.0.0.1:8093", help="sample event viewer base URL")
     p.add_argument("--hub", default="https://localhost:8080", help="device-io-hub base URL (token + LiveKit)")
     p.add_argument("--livekit-port", type=int, default=7880, help="LiveKit plain ws port on the hub host")
     p.add_argument("--demo", action="store_true", help="serve scripted events instead of the live feed")
