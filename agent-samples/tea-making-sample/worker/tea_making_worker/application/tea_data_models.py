@@ -56,6 +56,14 @@ class _TemperatureObservation(BaseModel):
     role: Literal["current", "setpoint", "unknown"] = "unknown"
     role_evidence: str | None = Field(default=None, max_length=120, description="Visible label/mode indicator distinguishing current measurement from setpoint; null if not established.")
 
+    @field_validator("unit_text", "role_evidence", mode="before")
+    @classmethod
+    def treat_null_words_as_missing(cls, value: Any) -> Any:
+        """Structured VLM output often spells an absent field as the string "null"."""
+        if isinstance(value, str) and value.strip().casefold() in {"", "null", "none", "n/a"}:
+            return None
+        return value
+
     @field_validator("role_evidence")
     @classmethod
     def retain_descriptive_mode_evidence(cls, value: str | None) -> str | None:

@@ -431,6 +431,12 @@ async def test_temperature_readiness_keeps_raw_unit_and_user_declaration_separat
         assert not arguments["can_assess"](numeric_only)
         assert _TemperatureObservation(value=96, unit_text="°").unit is None
         assert _TemperatureObservation(value=210, unit_text="MAX").unit is None
+        # Field VLM output spells an absent unit as the string "null"; it is not a non-temperature unit.
+        spelled_null = _TemperatureObservation.model_validate_json(
+            '{"value": 193, "unit_text": "null", "role": "unknown", "role_evidence": "null"}'
+        )
+        assert spelled_null.unit_text is None and spelled_null.role_evidence is None
+        assert can_assess(spelled_null)
     finally:
         await sop.stop()
         await context.close()
