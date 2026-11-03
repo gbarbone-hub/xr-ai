@@ -207,6 +207,38 @@ async def test_web_adapter_projects_conversation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_speaker_diagnostics_reach_the_web_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tea_making_worker.application.tea_application import _DiagnosticHubTransport
+    from xr_ai_hub import DataMessage
+    from xr_ai_voice import HubVoiceTransport
+
+    sent: list[DataMessage] = []
+
+    async def device_send(_self, msg: DataMessage) -> None:
+        sent.append(msg)
+
+    monkeypatch.setattr(HubVoiceTransport, "send_return_data", device_send)
+    captured: list[WebEvent] = []
+
+    class Capture(Agent):
+        @subscribe(WEB_EVENT_TOPIC)
+        async def capture(self, event: WebEvent, ctx: RuntimeContext) -> None:
+            captured.append(event)
+
+    runtime = AgentRuntime()
+    runtime.register("web-event-adapter", TeaWebEventsAgent())
+    runtime.register("capture", Capture())
+    transport = _DiagnosticHubTransport.__new__(_DiagnosticHubTransport)
+    transport.runtime = runtime
+    text = "Speaker 0 [ignored; waiting for enrollment]: hey agent lets start"
+    async with runtime:
+        await transport.send_return_data(DataMessage("p", "voice.speaker-diagnostic", 5, text.encode()))
+        await transport.send_return_data(DataMessage("p", "agent.response", 6, b"Hello"))
+    assert [m.topic for m in sent] == ["voice.speaker-diagnostic", "agent.response"]
+    assert [(e.topic, e.payload) for e in captured] == [("foreground", {"diagnostic": text})]
+
+
+@pytest.mark.asyncio
 async def test_web_viewer_surrounds_runtime_lifecycle() -> None:
     runtime = AgentRuntime()
     viewer = runtime.register("web-events", WebEventsAgent(host="127.0.0.1", port=0, max_events=8))

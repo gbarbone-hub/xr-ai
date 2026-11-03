@@ -64,6 +64,8 @@
   .msg.user small { color: var(--user); }
   .msg.agent { align-self: flex-start; background: rgba(118,185,0,.12); border: 1px solid rgba(118,185,0,.45); border-bottom-left-radius: 4px; }
   .msg.agent small { color: var(--agent); }
+  .msg.diag { align-self: flex-end; font-size: 15px; opacity: .8; background: rgba(210,153,34,.10); border: 1px dashed rgba(210,153,34,.6); }
+  .msg.diag small { color: rgb(210,153,34); }
   .tools { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
   .tools span { font: 12px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
   h2 button { padding: 2px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; }
@@ -152,7 +154,8 @@ function addMsg(kind, text, tools = []) {
   const chat = $('chat');
   chat.querySelector('.empty')?.remove();
   const el = document.createElement('div'); el.className = 'msg ' + kind;
-  const who = Object.assign(document.createElement('small'), { textContent: kind === 'user' ? 'You' : 'Agent' });
+  const label = { user: 'You', diag: 'Speech-to-text heard' }[kind] || 'Agent';
+  const who = Object.assign(document.createElement('small'), { textContent: label });
   el.append(who, document.createTextNode(text));
   if (tools.length) {
     const t = document.createElement('div'); t.className = 'tools';
@@ -178,6 +181,7 @@ function handle(ev) {
     case 'foreground':
       if (cleared) break;
       if (p.query) { addMsg('user', p.query); hot('stt'); }
+      if (p.diagnostic) { addMsg('diag', p.diagnostic); hot('stt'); }
       if (p.response) { addMsg('agent', p.response, p.tools || []); hot('llm', 'tts'); }
       if ((p.tools || []).some((t) => /rag|search|doc/i.test(t))) hot('embedding');
       if ((p.tools || []).some((t) => /view|vlm|image|frame/i.test(t))) hot('vlm');

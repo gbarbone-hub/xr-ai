@@ -30,6 +30,11 @@ class GuidanceNotice(_Event):
     text: str
 
 
+class SpeakerDiagnostic(_Event):
+    timestamp_us: int = Field(ge=0)
+    text: str
+
+
 USER_QUERY_TOPIC = Topic("tea-making.user-query", UserQuery)
 PARTICIPANT_JOINED_TOPIC = Topic(
     "tea-making.participant-joined",
@@ -42,13 +47,16 @@ PARTICIPANT_LEFT_TOPIC = Topic(
 INTERRUPTED_TOPIC = Topic("tea-making.interrupted", Interrupted)
 GUIDANCE_RECORD_TOPIC = Topic("tea-making.guidance-record", GuidanceRecord)
 GUIDANCE_NOTICE_TOPIC = Topic("tea-making.guidance-notice", GuidanceNotice)
+SPEAKER_DIAGNOSTIC_TOPIC = Topic("tea-making.speaker-diagnostic", SpeakerDiagnostic)
 __all__ = [
     "GUIDANCE_NOTICE_TOPIC",
     "GUIDANCE_RECORD_TOPIC",
     "INTERRUPTED_TOPIC",
     "PARTICIPANT_JOINED_TOPIC",
     "PARTICIPANT_LEFT_TOPIC",
+    "SPEAKER_DIAGNOSTIC_TOPIC",
     "USER_QUERY_TOPIC",
     "GuidanceNotice",
     "GuidanceRecord",
+    "SpeakerDiagnostic",
 ]

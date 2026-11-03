@@ -16,9 +16,11 @@ from .tea_events import (
     GUIDANCE_RECORD_TOPIC,
     PARTICIPANT_JOINED_TOPIC,
     PARTICIPANT_LEFT_TOPIC,
+    SPEAKER_DIAGNOSTIC_TOPIC,
     USER_QUERY_TOPIC,
     GuidanceNotice,
     GuidanceRecord,
+    SpeakerDiagnostic,
 )
 
 
@@ -53,6 +55,10 @@ class TeaWebEventsAgent(Agent):
             text = "".join(self._streams.pop(key))
         if text.strip():
             await self._publish_payload("foreground", "Conversation", {"response": text.strip()}, ctx)
+
+    @subscribe(SPEAKER_DIAGNOSTIC_TOPIC)
+    async def speaker_diagnostic(self, diagnostic: SpeakerDiagnostic, ctx: RuntimeContext) -> None:
+        await self._publish_payload("foreground", "Conversation", {"diagnostic": diagnostic.text}, ctx)
 
     @subscribe(GUIDANCE_RECORD_TOPIC)
     async def guidance_record(

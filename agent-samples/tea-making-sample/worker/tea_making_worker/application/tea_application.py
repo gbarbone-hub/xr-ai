@@ -23,6 +23,7 @@ import nemo_relay
 import yaml
 from loguru import logger
 from xr_ai_conversation import ContextManager, Conversation
+from xr_ai_hub import DataMessage
 from xr_ai_logging import setup_logging
 from pydantic import BaseModel
 from xr_ai_models import ModelsConfig, load_models_config, make_decision, make_llm, make_tts, make_vlm
@@ -45,12 +46,15 @@ from .tea_events import (
     INTERRUPTED_TOPIC,
     PARTICIPANT_JOINED_TOPIC,
     PARTICIPANT_LEFT_TOPIC,
+    SPEAKER_DIAGNOSTIC_TOPIC,
     USER_QUERY_TOPIC,
+    SpeakerDiagnostic,
 )
 from .tea_sop_agent import SOP_CONTEXT_SOURCE, SOPAgent
 from .tea_interaction import _TeaInteraction
 
 _CLIENT_TEXT_TOPIC = "agent.response"
+_SPEAKER_DIAGNOSTIC_DATA_TOPIC = "voice.speaker-diagnostic"
 
 
 @asynccontextmanager
@@ -112,6 +116,25 @@ def _append_relay_events(path: Path, lines: tuple[str, ...]) -> None:
         sink.writelines(lines)
 
 
+class _DiagnosticHubTransport(HubVoiceTransport):
+    """Mirror device-only speaker diagnostics onto the runtime for the event viewer."""
+
+    runtime: AgentRuntime | None = None
+
+    async def send_return_data(self, msg: DataMessage) -> None:
+        await super().send_return_data(msg)
+        if msg.topic != _SPEAKER_DIAGNOSTIC_DATA_TOPIC or self.runtime is None:
+            return
+        try:
+            await self.runtime.publish(
+                SPEAKER_DIAGNOSTIC_TOPIC,
+                SpeakerDiagnostic(timestamp_us=max(msg.pts_us, 0), text=msg.data.decode("utf-8", "replace")),
+                participant_id=msg.participant_id,
+            )
+        except Exception:  # noqa: BLE001 -- viewer mirroring must never affect device display.
+            logger.exception("speaker diagnostic mirroring failed pid={!r}", msg.participant_id)
+
+
 def _structured_reader_models_config(
     models: ModelsConfig, name: str, observation_model: type[BaseModel]
 ) -> ModelsConfig:
@@ -162,7 +185,7 @@ async def run_app(config: WorkerConfig, *, ready_file: Path | None = None) -> No
         tts = make_tts(models, "tts")
         rag = RAGTools(config.rag_endpoint)
         shared_clients.append(rag)
-        transport = HubVoiceTransport()
+        transport = _DiagnosticHubTransport()
         voice = VoiceAgent.from_models(
             query_topic=USER_QUERY_TOPIC,
             models=models,
@@ -207,6 +230,7 @@ async def run_app(config: WorkerConfig, *, ready_file: Path | None = None) -> No
         temperature_vlm = _RecordedVision(temperature_vlm)
         async with capture.activate():
             runtime = AgentRuntime()
+            transport.runtime = runtime
             web_events = runtime.register(
                 "web-events",
                 WebEventsAgent(
