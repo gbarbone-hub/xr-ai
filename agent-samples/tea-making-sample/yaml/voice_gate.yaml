@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# hybrid also accepts "Assistant, <request>" one-offs without enrolling first.
 mode: hybrid
 magic_phrases:
   - assistant
@@ -20,3 +21,6 @@ speaker:
   enabled: true
   backend: required
   base_url: http://127.0.0.1:8102
+  activity_threshold: 0.5
+  # Report what each speaker said, including unenrolled or ignored speech (display only).
+  diagnostics: true
