@@ -64,9 +64,6 @@ def load_steps(sample: Path) -> tuple[list[dict], str]:
     }
     return [{"id": k, "title": v} for k, v in titles.items()], "Tea making"
 
-    data = yaml.safe_load((sample / "yaml/workflow.yaml").read_text())
-    return [{"id": s["id"], "title": s.get("title", s["id"])} for s in data["steps"]], data["task"]["name"]
-
 
 def load_models(sample: Path) -> list[dict]:
     try:
