@@ -81,7 +81,10 @@ class _Decisions:
 
 def _runner(*, config=None, observer=None, llm=None, frames=None):
     selected = load_config(_SAMPLE / "yaml/tea_making_worker.yaml")
-    config = config or replace(selected.sop, poll_interval_seconds=0.001, timer_update_interval_seconds=0.005)
+    # Default fixtures read a Celsius display, so they run without the sample's configured kettle unit.
+    config = config or replace(
+        selected.sop, poll_interval_seconds=0.001, timer_update_interval_seconds=0.005, instrument_unit=None
+    )
     runtime = AgentRuntime()
 
     context = ContextManager(
@@ -322,6 +325,53 @@ async def test_flow_service_failure_announces_once_and_does_not_advance(failed_s
             assert announcements.count(sop.config.messages["failed"]) == 1
             assert "Tea guidance is complete." not in announcements
             assert not session.active_tasks
+        finally:
+            await router.stop()
+            await sop.stop()
+            await conversation.close()
+            await context.close()
+
+
+@pytest.mark.asyncio
+async def test_configured_fahrenheit_kettle_needs_no_unit_question_and_speaks_fahrenheit():
+    selected = load_config(_SAMPLE / "yaml/tea_making_worker.yaml")
+    assert selected.sop.instrument_unit == "fahrenheit"
+    sop, runtime, context = _runner(
+        config=replace(selected.sop, poll_interval_seconds=0.001, timer_update_interval_seconds=0.005)
+    )
+    original_observe = sop._image_query.execute
+    announcements = []
+
+    async def observe(request):
+        if request.query.startswith(sop.config.temperature.question):
+            # A bare display number, with absent fields spelled as the string "null" as the field VLM does.
+            return ImageQueryResult(
+                text='{"value": 185, "unit_text": "null", "role": "unknown", "role_evidence": "null"}'
+            )
+        return await original_observe(request)
+
+    sop._image_query.execute = observe
+
+    class Capture(Agent):
+        @subscribe(GUIDANCE_NOTICE_TOPIC)
+        async def notice(self, event: GuidanceNotice, _context: RuntimeContext):
+            announcements.append(event.text)
+
+    runtime.register("guidance-capture", Capture())
+    router, conversation, _language = _router(sop, runtime, context)
+    async with runtime:
+        try:
+            await sop.participant_joined("p")
+            await router.handle(AgentTurn("p", "start", "start tea making"))
+            assert sop._sessions["p"].display_unit == "fahrenheit"
+            await _until(lambda: sop._sessions["p"].status == "completed")
+            assert sop.config.messages["unit_needed"] not in announcements
+            assert any("176 degrees Fahrenheit" in text for text in announcements if text.startswith("I identified"))
+            assert [text for text in announcements if text.startswith("The water reads")] == [
+                "The water reads 185 degrees Fahrenheit, meeting the minimum of 176 degrees Fahrenheit. "
+                + sop.config.messages["start_steeping"]
+            ]
+            assert not any("Celsius" in text for text in announcements)
         finally:
             await router.stop()
             await sop.stop()

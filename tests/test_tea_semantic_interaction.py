@@ -291,7 +291,7 @@ async def test_runtime_start_has_one_reply_and_autonomous_identity_has_one_summa
             await _until(lambda: any(event.kind == "update" for event in outputs))
             updates = [event.text for event in outputs if event.kind == "update"]
             assert len(updates) == 1
-            assert "Northwind White Tea" in updates[0] and "80" in updates[0]
+            assert "Northwind White Tea" in updates[0] and "176 degrees Fahrenheit" in updates[0]
             assert sop.config.messages["fill_water"] in updates[0]
             assert sop.context_snapshot("p")["resolved_settings"]["sources"]["temperature"]["kind"] == "retrieved"
             assert language.messages == []  # Native guidance does not require generated user turns.

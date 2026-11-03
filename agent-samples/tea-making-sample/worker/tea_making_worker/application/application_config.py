@@ -120,10 +120,13 @@ def _sop(data: dict[str, Any]) -> SOPConfig:
     if not isinstance(configuration, dict):
         raise ValueError("sop application configuration is required")
     expected = set(SOPConfig.__dataclass_fields__)
-    if set(configuration) - expected or expected - set(configuration) - {"instrument_unit_question"}:
+    if set(configuration) - expected or expected - set(configuration) - {"instrument_unit_question", "instrument_unit"}:
         raise ValueError(f"sop configuration keys differ: {sorted(set(configuration) ^ expected)}")
     arguments = dict(configuration)
     arguments.setdefault("instrument_unit_question", None)
+    arguments.setdefault("instrument_unit", None)
+    if arguments["instrument_unit"] not in {None, "celsius", "fahrenheit"}:
+        raise ValueError("sop.instrument_unit must be celsius or fahrenheit")
     if arguments["instrument_unit_question"] is not None:
         arguments["instrument_unit_question"] = _decision(configuration, "instrument_unit_question")
         if set(arguments["instrument_unit_question"].criteria) != {"celsius", "fahrenheit", "not_declared", "unclear"}:

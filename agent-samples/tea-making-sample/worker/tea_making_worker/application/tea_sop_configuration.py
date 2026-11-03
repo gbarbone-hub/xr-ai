@@ -55,3 +55,5 @@ class SOPConfig:
     retrieved_text_limit: int
     timer_update_interval_seconds: float
     instrument_unit_question: DecisionQuestion | None = None
+    # Known kettle display unit; a guide starts with it instead of asking. A user declaration still overrides it.
+    instrument_unit: Literal["celsius", "fahrenheit"] | None = None

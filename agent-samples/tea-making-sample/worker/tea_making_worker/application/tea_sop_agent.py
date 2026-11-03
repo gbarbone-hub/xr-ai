@@ -389,6 +389,10 @@ class SOPAgent(Agent):
             session.revision += 1
             session.status = "running"
             session.issue = ""
+            if self.config.instrument_unit is not None:
+                # The stop above cleared any unit; a configured kettle unit needs no question.
+                session.display_unit = self.config.instrument_unit
+                session.display_unit_source = {"kind": "configured"}
             session.native_reply_entry = native_reply_entry
             session.procedure = asyncio.create_task(
                 self._supervise(session),
@@ -768,6 +772,9 @@ class SOPAgent(Agent):
             if isinstance(reading, _TemperatureObservation) and reading.value is not None and reading.role != "setpoint" and not reading.has_other_unit:
                 conflict = reading.unit is not None and session.display_unit is not None and reading.unit != session.display_unit
                 gap = "conflicting_units" if conflict else "missing_unit" if reading.unit is None and session.display_unit is None else None
+                if conflict and (session.display_unit_source or {}).get("kind") == "configured":
+                    # A configured kettle unit is known; a contradicting glyph is a misread, skipped without asking.
+                    gap = None
                 marker = (gap, session.temperature_context_revision)
                 if gap is not None and marker != session.unit_gap_asked and "unit_needed" in self.config.messages:
                     session.unit_gap_asked = marker
@@ -781,13 +788,15 @@ class SOPAgent(Agent):
         )
         sources = identification.sources if isinstance(identification, VisionRAGRetrievalState) else {}
         identity = identification.visual_data if isinstance(identification, VisionRAGRetrievalState) else None
+        temperature_c = (
+            settings.temperature.celsius if settings.temperature is not None else self.config.default_temperature_c
+        )
         return {
             "tea_name": (identity.tea_name or identity.tea_type)
             if identity is not None
             else self.config.default_tea_name,
-            "temperature_c": (
-                settings.temperature.celsius if settings.temperature is not None else self.config.default_temperature_c
-            ),
+            "temperature_c": temperature_c,
+            "temperature_f": round(temperature_c * 9 / 5 + 32, 1),
             "duration_seconds": (
                 settings.steep_duration.seconds
                 if settings.steep_duration is not None
