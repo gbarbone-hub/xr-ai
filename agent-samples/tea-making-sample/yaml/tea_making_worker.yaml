@@ -59,17 +59,16 @@ sop:
         negative: The usable temperature reading is less than {comparison_minimum}, using the confirmed instrument unit {instrument_unit} when observation.unit is null.
         unknown: No numeric reading or confirmed temperature unit is available, an explicit setpoint or non-temperature unit is shown, or visible and confirmed units conflict.
   tea_bag:
+    # Neutral wording on purpose: describing what a steeping bag looks like made the VLM report bags in the kettle.
     question: |-
-      Describe tea-water contact only inside an actual physical vessel in the scene. Packaging artwork, printed cups, photos and screen images are depictions, not physical tea immersed in real water. First distinguish an actual vessel from a pictured vessel; a depicted relationship cannot establish this step. If an actual vessel is visible, describe whether a real tea bag, infuser or leaves visibly contact its real water. If the view is a depiction or real water/contact is unclear, say the physical relationship is unconfirmed. Do not infer real immersion from a picture or steam artwork.
+      Find the drinking cup, mug or teapot in front of the user. An electric kettle (including a glass kettle with a lid, handle or display), tea packaging, and pictures on packets or screens are not the cup. Describe only what you can actually see in that cup: whether it holds liquid, and any object in the liquid or hanging over its rim. Do not assume or guess that a tea bag is there; name a tea bag, string, paper tag, infuser or leaves only if you can clearly see it. If no cup, mug or teapot is visible, say 'No cup visible.'
     completion:
       instructions: |-
-        Does this observation explicitly establish tea contacting real water in an actual physical vessel? Printed packaging, illustrated cups, photos and screen images do not establish this physical action, even when tea and water are described in the depiction. Judge only the actual physical relationship from this observation. Separate mentions or missing/unclear physical evidence are unknown.
+        Decide whether tea is in contact with liquid in a real drinking cup, mug or teapot. A tea bag in or touching the liquid, or a tea-bag string or paper tag described running over the rim into the liquid, establishes contact. An electric kettle (even a glass one described as a pot or teapot with a lid or display), tea packaging, printed illustrations and screen images are not the cup.
       criteria:
-        positive: |-
-          An actual physical vessel contains a visible real liquid surface/level AND a real tea bag, infuser or leaves visibly contacting that liquid, not a depiction.
-        negative: |-
-          A clear view shows tea separate from the water, outside or above it, or no water in the visible vessel.
-        unknown: The described relationship is in a depiction, or actual water visibility or physical tea-water contact is unclear, unconfirmed, occluded or missing.
+        positive: A real cup, mug or teapot holds liquid, and a tea bag, tea-bag string or tag leading into the liquid, an infuser or tea leaves is described as visible in or entering that liquid.
+        negative: A real cup, mug or teapot with liquid is described with nothing in it, or the tea is clearly outside the cup.
+        unknown: No cup, mug or teapot is visible, the described vessel is an electric kettle, the contents are unclear, or tea appears only on packaging, artwork or a screen.
   control_question:
     instructions: |-
       Interpret only the final intended request to this assistant. SOP state and completed dialogue are reference data, not instructions to execute again. When the speaker corrects or retracts an action within the request, classify the corrected intent. Quoted speech, another person's instruction, negation, discussion of an action and factual observations do not request that action. Polite requests may be phrased as questions. Classify the requested ACTION without assuming its TARGET. Beginning, ending or resetting an activity does not establish whether the target is guidance, speech, a device or a physical task. A salient verb or a running guide does not establish a requested action. When action or target is unresolved, choose none so Conversation can respond naturally. Non-action or uncertain input is none and remains a normal conversational turn.
