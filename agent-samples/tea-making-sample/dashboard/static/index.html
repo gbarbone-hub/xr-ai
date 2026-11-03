@@ -194,6 +194,11 @@ function handle(ev) {
           if (idx >= 0) { for (let i = 0; i < idx; i++) state.done.add(i); state.active = idx; setStepMsg(p.message); }
           break;
         case 'step.commit': hot('llm', 'vlm'); break;
+        case 'flow.state':
+          // The routed-flow worker has no step.enter; the newest flow reporting state is the active step.
+          hot('llm', 'vlm');
+          if (idx >= 0 && idx >= state.active) { for (let i = 0; i < idx; i++) state.done.add(i); state.active = idx; }
+          break;
         case 'workflow.complete':
           state.steps.forEach((_, i) => state.done.add(i)); state.active = -1; setStepMsg(p.message); break;
       }

@@ -53,8 +53,16 @@ CONTENT_TYPES = {
 }
 
 
-def load_steps(sample: Path) -> list[dict]:
-    import yaml  # PyYAML ships in the sample's venv; only needed here
+def load_steps(sample: Path) -> tuple[list[dict], str]:
+    # Step ids are fixed by the worker's flow sequence (tea_sop_agent._STEP_IDS).
+    titles = {
+        "identify": "Identify the tea",
+        "fill_water": "Fill the heating vessel",
+        "heat_water": "Heat the water",
+        "start_steeping": "Start steeping",
+        "steep_timer": "Steep",
+    }
+    return [{"id": k, "title": v} for k, v in titles.items()], "Tea making"
 
     data = yaml.safe_load((sample / "yaml/workflow.yaml").read_text())
     return [{"id": s["id"], "title": s.get("title", s["id"])} for s in data["steps"]], data["task"]["name"]
