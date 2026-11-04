@@ -530,3 +530,51 @@ async def test_application_drains_sop_work_before_closing_borrowed_services(monk
         for instance in instances:
             await instance.stop()
             await instance._context.close()
+
+
+def test_spoken_text_spells_numbers_and_temperature_units():
+    from tea_making_worker.application.spoken_text import speakable
+
+    assert speakable("Heat the water to at least 176 degrees Fahrenheit.") == (
+        "Heat the water to at least one hundred seventy-six degrees Fahrenheit."
+    )
+    assert speakable("Reads 194 °F; target 176°F; 80°C; 90 °") == (
+        "Reads one hundred ninety-four degrees Fahrenheit; target one hundred seventy-six degrees Fahrenheit; "
+        "eighty degrees Celsius; ninety degrees"
+    )
+    assert speakable("208.4 degrees for 2.5 minutes, 100% done, 1,250 ml, 0 left") == (
+        "two hundred eight point four degrees for two point five minutes, one hundred percent done, "
+        "one thousand two hundred fifty ml, zero left"
+    )
+    assert speakable("mp3 and v2 stay") == "mp3 and v2 stay"
+
+
+@pytest.mark.asyncio
+async def test_spoken_numbers_wrapper_keeps_streaming_and_rewrites_text():
+    from tea_making_worker.application.spoken_text import spoken_numbers
+    from xr_ai_models._protocols import _StreamingTTSService
+
+    received = []
+
+    class Plain:
+        async def synthesize(self, text, **_kwargs):
+            received.append(text)
+            return b"wav"
+
+        async def health(self):
+            return True
+
+        async def close(self):
+            return None
+
+    class Streaming(Plain):
+        async def stream(self, text, **_kwargs):
+            received.append(text)
+            yield b"pcm"
+
+    plain, streaming = spoken_numbers(Plain()), spoken_numbers(Streaming())
+    assert not isinstance(plain, _StreamingTTSService)
+    assert isinstance(streaming, _StreamingTTSService)
+    assert await plain.synthesize("176 °F") == b"wav"
+    assert [chunk async for chunk in streaming.stream("Wait 150 seconds")] == [b"pcm"]
+    assert received == ["one hundred seventy-six degrees Fahrenheit", "Wait one hundred fifty seconds"]

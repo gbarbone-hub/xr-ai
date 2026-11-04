@@ -52,6 +52,7 @@ from .tea_events import (
 )
 from .tea_sop_agent import SOP_CONTEXT_SOURCE, SOPAgent
 from .tea_interaction import _TeaInteraction
+from .spoken_text import spoken_numbers
 
 _CLIENT_TEXT_TOPIC = "agent.response"
 _SPEAKER_DIAGNOSTIC_DATA_TOPIC = "voice.speaker-diagnostic"
@@ -182,7 +183,8 @@ async def run_app(config: WorkerConfig, *, ready_file: Path | None = None) -> No
         temperature_models = _structured_reader_models_config(models, "temperature", _TemperatureObservation)
         temperature_vlm = make_vlm(temperature_models, "temperature")
         shared_clients.append(temperature_vlm)
-        tts = make_tts(models, "tts")
+        # Pocket TTS misreads digits ("176" as "seventeen six"); speak numbers as words.
+        tts = spoken_numbers(make_tts(models, "tts"))
         rag = RAGTools(config.rag_endpoint)
         shared_clients.append(rag)
         transport = _DiagnosticHubTransport()
