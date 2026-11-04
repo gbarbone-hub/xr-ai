@@ -23,4 +23,4 @@ speaker:
   base_url: http://127.0.0.1:8102
   activity_threshold: 0.5
   # Report what each speaker said, including unenrolled or ignored speech (display only).
-  diagnostics: true
+  diagnostics: false
