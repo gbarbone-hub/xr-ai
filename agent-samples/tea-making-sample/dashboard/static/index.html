@@ -80,6 +80,12 @@
   .model .why { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .model.hot { border-color: var(--accent); box-shadow: 0 0 14px rgba(118,185,0,.35); }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; overflow-y: auto; } }
+  .help { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); font-size: 15px; }
+  .help h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
+  .help .cmd { display: flex; align-items: baseline; gap: 8px; color: var(--muted); }
+  .help q { quotes: none; color: var(--text); font-weight: 600; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); white-space: nowrap; }
+  .help q.key { border-color: var(--accent-dim); color: var(--accent); }
+  @media (max-width: 700px) { .help { padding: 10px 16px; gap: 8px 14px; font-size: 14px; } }
 </style>
 </head>
 <body>
@@ -119,10 +125,17 @@
     </div>
   </section>
 </main>
+<footer class="help" aria-label="How to talk to the assistant">
+  <h2>How to use</h2>
+  <div class="cmd"><q class="key">Assistant, …</q> ask one question or give one command</div>
+  <div class="cmd"><q>Start talking to me</q> / <q>Stop talking to me</q> conversation mode on or off, no wake word needed</div>
+  <div class="cmd"><q>Start tea making</q> / <q>Restart tea making</q> step-by-step guidance</div>
+  <div class="cmd"><q>Skip</q> move past the current step</div>
+</footer>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const state = { steps: [], active: -1, done: new Set(), cursor: 0, models: {}, hub: '', chatFrom: 0 };
+const state = { runId: null, steps: [], active: -1, done: new Set(), cursor: 0, models: {}, hub: '', chatFrom: 0 };
 // Events at or before chatFrom are history the presenter cleared; remembered across reloads.
 try { state.chatFrom = Number(localStorage.getItem('pv.chatFrom')) || 0; } catch {}
 
@@ -193,9 +206,13 @@ function handle(ev) {
       break;
     case 'guidance.events': {
       const idx = state.steps.findIndex((s) => s.id === p.step_id);
+      // A new run always starts from the first step, even if its start event was missed.
+      if (p.run_id && p.run_id !== state.runId) { state.runId = p.run_id; state.done.clear(); state.active = -1; setStepMsg(''); }
       switch (p.event) {
         case 'workflow.started': case 'workflow.restarted': case 'workflow.reset':
-          state.done.clear(); state.active = -1; break;
+          state.done.clear(); state.active = -1; setStepMsg('Tea guidance started.'); break;
+        case 'workflow.stopped':
+          state.done.clear(); state.active = -1; state.runId = null; setStepMsg('Tea guidance was reset.'); break;
         case 'step.enter':
           if (idx >= 0) { for (let i = 0; i < idx; i++) state.done.add(i); state.active = idx; setStepMsg(p.message); }
           break;
