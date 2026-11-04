@@ -408,9 +408,11 @@ class SOPAgent(Agent):
                 context=nemo_relay.fork_asyncio_context(),
             )
             await self._publish_context(session)
+            await self._workflow_event(session, "workflow.started", session.run_id)
             return self.config.messages["start"]
         if control == "stop":
             await self._stop_run(session)
+            stopped_run = session.run_id
             if session.run_id:
                 session.last_run = self._run_summary(session)
             session.status = "idle"
@@ -432,6 +434,8 @@ class SOPAgent(Agent):
                     session.native_reply_entry[1].set_result(self.config.messages["not_running"])
                 session.native_reply_entry = None
             await self._publish_context(session)
+            if stopped_run:
+                await self._workflow_event(session, "workflow.stopped", stopped_run)
             return self.config.messages["stop"]
         if control in {"next", "skip"}:
             if session.status != "running":
@@ -559,6 +563,7 @@ class SOPAgent(Agent):
         session.status = "completed"
         session.revision += 1
         await self._publish_context(session)
+        await self._workflow_event(session, "workflow.complete", session.run_id)
         timer_message = "timer_skipped" if session.flow_statuses.get("steep_timer") == "skipped" else "timer_complete"
         await self._announce_entry(
             session, len(_STEP_IDS),
@@ -584,8 +589,19 @@ class SOPAgent(Agent):
             {label: criterion.format_map(replacements) for label, criterion in instructions.completion.criteria.items()},
         )
 
+        # While the user sets the kettle, its display shows the target. Count a reading at
+        # or above the target only after this check has seen the water below it.
+        seen_below_target = False
+
         def can_assess(reading: _TemperatureObservation) -> bool:
-            return _temperature_assessment_issue(reading, declared_unit) is None
+            nonlocal seen_below_target
+            if _temperature_assessment_issue(reading, declared_unit) is not None:
+                return False
+            unit = reading.unit or declared_unit
+            target = target_celsius * 9 / 5 + 32 if unit == "fahrenheit" else target_celsius
+            if reading.value < target:
+                seen_below_target = True
+            return seen_below_target
 
         return run_visual_verification_flow(
             **{**self._observation_arguments(session), "observer": self._temperature_image_query},
@@ -939,9 +955,7 @@ class SOPAgent(Agent):
                     (
                         o for o in reversed(state.observations)
                         if isinstance(o.parsed, _TemperatureObservation)
-                        and o.parsed.value is not None
-                        and o.parsed.role != "setpoint"
-                        and not o.parsed.has_other_unit
+                        and _temperature_assessment_issue(o.parsed, session.display_unit) is None
                     ),
                     None,
                 )
@@ -1010,6 +1024,16 @@ class SOPAgent(Agent):
                 for name, source in snapshot["resolved_settings"]["sources"].items()
             }
         return snapshot
+
+    async def _workflow_event(self, session: _Session, event: str, run_id: str | None) -> None:
+        """Tell viewers a run started, stopped or completed so step displays reset with it."""
+        if self._sessions.get(session.participant_id) is not session or not session.connected:
+            return
+        await self._runtime.publish(
+            GUIDANCE_RECORD_TOPIC,
+            GuidanceRecord(run_id=run_id, timestamp_us=time.time_ns() // 1000, event=event, message=""),
+            participant_id=session.participant_id,
+        )
 
     async def _publish_context(self, session: _Session) -> None:
         """Replace the SDK SOP-status source; the conversation agent owns its dialogue."""

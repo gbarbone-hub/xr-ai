@@ -98,6 +98,10 @@ def _temperature_assessment_issue(reading: _TemperatureObservation, declared_uni
         return "conflicting_units"
     if (reading.unit or declared_unit) is None:
         return "instrument_unit_unconfirmed"
+    # Liquid water is between freezing and boiling; anything else is a misread digit.
+    low, high = (32.0, 215.0) if (reading.unit or declared_unit) == "fahrenheit" else (0.0, 101.5)
+    if not low <= reading.value <= high:
+        return "implausible_water_temperature"
     return None
 
 
