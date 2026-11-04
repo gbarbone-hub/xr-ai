@@ -66,6 +66,8 @@
   .msg.agent small { color: var(--agent); }
   .msg.diag { align-self: flex-end; font-size: 15px; opacity: .8; background: rgba(210,153,34,.10); border: 1px dashed rgba(210,153,34,.6); }
   .msg.diag small { color: rgb(210,153,34); }
+  .msg.system { align-self: center; font-size: 14px; opacity: .85; background: transparent; border: 1px dashed var(--muted); }
+  .msg.system small { color: var(--muted); }
   .tools { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
   .tools span { font: 12px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
   h2 button { padding: 2px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; }
@@ -109,7 +111,7 @@
   <section class="col">
     <div class="card" style="flex:1">
       <h2>Conversation <button id="clear-btn" title="Clear transcript">Clear</button></h2>
-      <div class="chat" id="chat"><div class="empty">Say “Agent, start making tea” to begin.</div></div>
+      <div class="chat" id="chat"><div class="empty">Say “Start talking to me” to begin a conversation, or “Assistant, …” to ask a single question.</div></div>
     </div>
     <div class="card">
       <h2>Models <span>highlighted when in use</span></h2>
@@ -154,7 +156,7 @@ function addMsg(kind, text, tools = []) {
   const chat = $('chat');
   chat.querySelector('.empty')?.remove();
   const el = document.createElement('div'); el.className = 'msg ' + kind;
-  const label = { user: 'You', diag: 'Speech-to-text heard' }[kind] || 'Agent';
+  const label = { user: 'You', diag: 'Speech-to-text heard', system: 'Status' }[kind] || 'Agent';
   const who = Object.assign(document.createElement('small'), { textContent: label });
   el.append(who, document.createTextNode(text));
   if (tools.length) {
@@ -208,6 +210,17 @@ function handle(ev) {
       }
       renderSteps(); break;
     }
+    case 'participant.lifecycle':
+      // The agent drops a participant's guidance when it leaves; mirror that so the steps match.
+      if (/dashboard/.test(ev.participant_id || '')) break;
+      if (p.event === 'left') {
+        state.done.clear(); state.active = -1; renderSteps();
+        setStepMsg('Headset disconnected. Guidance was reset; start again after it reconnects.');
+        if (!cleared) addMsg('system', 'Headset disconnected. Tea guidance was reset.');
+      } else if (p.event === 'joined' && state.active === -1) {
+        setStepMsg('Headset connected. Guidance has not started.');
+      }
+      break;
     case 'background.video-log': case 'background.change-watch': hot('vlm'); break;
   }
 }
@@ -216,7 +229,8 @@ async function poll() {
     const r = await fetch('/api/events?after=' + state.cursor);
     if (!r.ok) throw new Error(r.status);
     const data = await r.json();
-    if (data.reset) { state.chatFrom = 0; try { localStorage.removeItem('pv.chatFrom'); } catch {} $('chat').replaceChildren(); state.done.clear(); state.active = -1; renderSteps(); }
+    // Sequences restart with the stack: a saved cutoff beyond the feed's cursor is stale and would hide every new line.
+    if (data.reset || state.chatFrom > data.cursor) { state.chatFrom = 0; try { localStorage.removeItem('pv.chatFrom'); } catch {} $('chat').replaceChildren(emptyChat()); state.done.clear(); state.active = -1; renderSteps(); }
     for (const ev of data.events) handle(ev);
     state.cursor = data.cursor;
     $('dot-feed').className = 'dot ok'; $('feed-label').textContent = cfg.demo ? 'demo events' : 'events live';
@@ -225,7 +239,7 @@ async function poll() {
   }
   setTimeout(poll, 600);
 }
-const emptyChat = () => Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Say “Agent, start making tea” to begin.' });
+const emptyChat = () => Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Say “Start talking to me” to begin a conversation, or “Assistant, …” to ask a single question.' });
 $('clear-btn').onclick = () => {
   state.chatFrom = state.cursor;
   try { localStorage.setItem('pv.chatFrom', String(state.chatFrom)); } catch {}
@@ -259,20 +273,39 @@ async function joinHub() {
   const step = (name) => { stage = name; $('cam-msg').textContent = name + '…'; };
   const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms / 1000}s`)), ms))]);
   try {
-    const { Room, RoomEvent, Track } = await within(15000, import('/vendor/livekit-client.esm.mjs'));
+    const { Room, RoomEvent, Track, VideoQuality } = await within(15000, import('/vendor/livekit-client.esm.mjs'));
     step('Requesting camera token');
     const lk = await within(10000, fetch('/api/livekit').then((r) => r.json()));
     if (lk.error) throw new Error(lk.error);
     const { token, url } = lk;
     // adaptiveStream is off: it pauses video whenever the element has no layout size.
     const room = new Room({ adaptiveStream: false, dynacast: false });
-    const attach = (track, participant) => {
+    let statsTimer = 0;
+    const attach = (track, participant, pub) => {
       if (track.kind !== Track.Kind.Video) return;
+      // Ask the SFU for the top simulcast layer; otherwise it may send this viewer a lower one.
+      pub?.setVideoQuality?.(VideoQuality.HIGH);
       track.attach(video);
       video.play().catch(() => {});
-      cameraLive('stream live', participant.name || participant.identity);
+      const who = participant.name || participant.identity;
+      cameraLive('stream live', who);
+      // Show what this page receives next to what the headset publishes, so a soft picture can be
+      // traced to the dashboard link (received < published) or to the headset encoder (both low).
+      clearInterval(statsTimer);
+      let last = null;
+      statsTimer = setInterval(async () => {
+        const st = await track.getReceiverStats?.().catch(() => null);
+        if (!st) return;
+        const ms = last ? st.timestamp - last.timestamp : 0;
+        const kbps = ms > 0 ? Math.round(((st.bytesReceived - last.bytesReceived) * 8) / ms) : null;
+        const fps = ms > 0 ? ((st.framesDecoded - last.framesDecoded) * 1000) / ms : 0;
+        last = st;
+        const pubDims = pub?.dimensions ? `${pub.dimensions.width}×${pub.dimensions.height}` : '?';
+        $('cam-src').textContent = `${who} · ${st.frameWidth || video.videoWidth}×${st.frameHeight || video.videoHeight}` +
+          ` of ${pubDims} · ${Math.round(fps)} fps` + (kbps !== null ? ` · ${(kbps / 1000).toFixed(1)} Mbps` : '');
+      }, 2000);
     };
-    room.on(RoomEvent.TrackSubscribed, attach);
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => attach(track, participant, pub));
     room.on(RoomEvent.TrackPublished, (pub) => { if (pub.kind === Track.Kind.Video) pub.setSubscribed(true); });
     room.on(RoomEvent.TrackUnsubscribed, (t) => { if (t.kind === Track.Kind.Video) cameraDown('Camera stream ended. Waiting for it to return…'); });
     room.on(RoomEvent.Disconnected, () => cameraDown('Disconnected from the hub.'));
@@ -284,7 +317,7 @@ async function joinHub() {
       for (const pub of p.trackPublications.values()) {
         if (pub.kind !== Track.Kind.Video) continue;
         pub.setSubscribed(true);
-        if (pub.track) attach(pub.track, p);
+        if (pub.track) attach(pub.track, p, pub);
       }
   } catch (e) {
     console.error('dashboard camera failed at:', stage, e);
