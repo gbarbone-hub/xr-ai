@@ -510,6 +510,7 @@ class SOPAgent(Agent):
                 visual_model=TeaIdentity,
                 result_model=BrewingSettings,
                 can_generate=lambda identity: identity.tea_type is not None,
+                required_identity_reads=self.config.required_positives,
                 visual_question=self.config.identification_question,
                 extraction_instructions=self.config.extraction_instructions,
                 fallback_instructions=self.config.fallback_instructions,

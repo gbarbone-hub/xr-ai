@@ -317,6 +317,37 @@ async def test_vision_rag_retrieval_retries_then_generates_only_missing_fields()
     assert result.passages[0]["source"] == "white-tea.md"
 
 
+
+@pytest.mark.asyncio
+async def test_identity_needs_agreeing_reads_so_a_single_misread_is_not_retrieved():
+    arguments = _vision_rag_retrieval(
+        frame_source=AsyncMock(side_effect=[_frame(index) for index in range(1, 6)]),
+        observer=SimpleNamespace(
+            execute=AsyncMock(
+                side_effect=[
+                    # A blurred label once misread as another product, then unreadable, then read twice.
+                    ImageQueryResult(text='{"tea_name":"BIGELOW","tea_type":"Premium Chinese Tea"}'),
+                    ImageQueryResult(text='{"tea_name":null,"tea_type":null}'),
+                    ImageQueryResult(text='{"tea_name":"BIGELOW","tea_type":"Green Tea"}'),
+                    ImageQueryResult(text='{"tea_name":"Bigelow Premium Green Tea","tea_type":"green tea"}'),
+                ]
+            )
+        ),
+        retrieval_query=lambda identity: f"{identity.tea_name} {identity.tea_type}",
+        required_identity_reads=2,
+    )
+    result = await run_vision_rag_retrieval_flow(**arguments)
+    assert result.visual_data.tea_name == "Bigelow Premium Green Tea"
+    assert [call.args[0].query for call in arguments["retrieval"].execute.await_args_list] == [
+        "Bigelow Premium Green Tea green tea"
+    ]
+    assert arguments["observer"].execute.await_count == 4
+
+
+def test_identity_reads_must_be_positive():
+    with pytest.raises(ValueError, match="required_identity_reads"):
+        asyncio.run(run_vision_rag_retrieval_flow(**_vision_rag_retrieval(required_identity_reads=0)))
+
 @pytest.mark.asyncio
 async def test_unsupported_source_quote_cannot_be_labeled_retrieved():
     arguments = _vision_rag_retrieval()

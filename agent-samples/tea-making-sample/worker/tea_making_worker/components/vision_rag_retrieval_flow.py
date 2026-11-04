@@ -59,6 +59,19 @@ def _without_schema_defaults(value: Any, *, named_schemas: bool = False) -> Any:
     return value
 
 
+def _same_identity(first: BaseModel, second: BaseModel) -> bool:
+    """Agree when each field matches, allowing one text read to be a fuller version of the other."""
+    for name, a in first.model_dump().items():
+        b = second.model_dump().get(name)
+        if isinstance(a, str) and isinstance(b, str):
+            a, b = " ".join(a.casefold().split()), " ".join(b.casefold().split())
+            if a not in b and b not in a:
+                return False
+        elif a != b:
+            return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class FieldSource:
     """Source of one validated field; generated values cannot claim a document quote."""
@@ -118,6 +131,7 @@ async def run_vision_rag_retrieval_flow(
     history_max_age_seconds: float | None = None,
     on_state: Callable[[VisionRAGRetrievalState[VisualData, ResolvedData]], Awaitable[None]] | None = None,
     can_generate: Callable[[VisualData], bool] | None = None,
+    required_identity_reads: int = 1,
 ) -> VisionRAGRetrievalState[VisualData, ResolvedData]:
     """Observe visual data, resolve requested fields and return the source-labeled result.
 
@@ -144,6 +158,8 @@ async def run_vision_rag_retrieval_flow(
         can_generate: Optional application prerequisite for missing-field generation. False
             retains retrieved partial values and waits for new visual information without an LLM call.
         on_state: Async full-state callback in this task; callback failures propagate.
+        required_identity_reads: Readable views that must agree before a new visual identity
+            replaces the current one. Unreadable views in between do not reset the count.
 
     Returns:
         Complete visual/result state. Validated partial fields are reported
@@ -169,6 +185,8 @@ async def run_vision_rag_retrieval_flow(
         raise ValueError("history age must be positive")
     if can_generate is not None and not callable(can_generate):
         raise TypeError("can_generate must be callable")
+    if type(required_identity_reads) is not int or required_identity_reads < 1:
+        raise ValueError("required_identity_reads must be a positive integer")
     empty_result = result_model.model_validate({})
     if any(value is not None for value in empty_result.model_dump().values()):
         raise ValueError("result fields must default to None; caller owns application defaults")
@@ -186,6 +204,8 @@ async def run_vision_rag_retrieval_flow(
     field_evidence: dict[str, FieldSource] = {}
     resolution_issues: dict[str, str] = {}
     latest_frame_keys: dict[str, tuple[int, int]] = {}
+    pending_identity: VisualData | None = None
+    pending_reads = 0
 
     async def report(phase, *, complete=False, issue=""):
         """Publish fresh snapshots; never mutate an object already given to the runner."""
@@ -433,6 +453,17 @@ async def run_vision_rag_retrieval_flow(
                 # Retain the whole established model for a weaker consistent
                 # reread; do not merge new complementary identity fragments.
                 observed_visual_data = visual_data
+        if observed_visual_data != visual_data and required_identity_reads > 1:
+            # A misread (motion blur, a familiar-brand guess) rarely repeats; a real label does.
+            if pending_identity is not None and _same_identity(pending_identity, observed_visual_data):
+                pending_reads += 1
+            else:
+                pending_identity, pending_reads = observed_visual_data, 1
+            if pending_reads < required_identity_reads:
+                await report("observing", issue="Confirming the label on another view.")
+                await asyncio.sleep(poll_interval_seconds)
+                continue
+        pending_identity, pending_reads = None, 0
         visual_data = observed_visual_data
 
         if visual_data != retrieved_for:
