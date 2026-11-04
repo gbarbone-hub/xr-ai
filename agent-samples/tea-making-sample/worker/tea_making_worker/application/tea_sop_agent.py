@@ -119,6 +119,25 @@ class _InteractionProposal:
             )
         )
 
+    def authorizes(self) -> bool:
+        """Require a supported operation on a supported target.
+
+        The guide is this app's only startable activity, and speech recognition often
+        garbles its name ("team making"). A confident start/restart therefore needs the
+        whole guide only to be the top target choice, not an outright majority.
+        """
+        if self.referent is None or not self.supported(self.operation):
+            return False
+        if self.supported(self.referent):
+            return True
+        probabilities = self.referent.probabilities
+        return (
+            self.operation.choice in {"start", "restart"}
+            and self.operation.probabilities.get(self.operation.choice, 0.0) >= 0.8
+            and self.referent.choice == "workflow"
+            and probabilities.get("workflow", 0.0) == max(probabilities.values(), default=0.0)
+        )
+
 
 class SOPAgent(Agent):
     """Control-only SOP runner and owner of flow state supplied to conversation.
@@ -231,7 +250,7 @@ class SOPAgent(Agent):
             scope_matches = self._interaction_is_current(
                 snapshot, turn.participant_id, require_revision=operation not in {"start", "stop", "restart"}
             )
-            action_supported = (proposal.referent is not None and proposal.supported(proposal.operation) and proposal.supported(proposal.referent))
+            action_supported = proposal.authorizes()
             step_effect = (
                 operation in {"next", "skip"} and target == self._step_id(session)
                 and target in session.flow_statuses and session.status == "running"
@@ -281,7 +300,7 @@ class SOPAgent(Agent):
     async def _finish_interaction(self, snapshot: _InteractionSnapshot, turn: AgentTurn, proposal: _InteractionProposal) -> str | None:
         """Revalidate at commit and publish what actually happened for Conversation."""
         session = snapshot.session
-        action_supported = (proposal.referent is not None and proposal.supported(proposal.operation) and proposal.supported(proposal.referent))
+        action_supported = proposal.authorizes()
         operation = proposal.operation.choice if action_supported or proposal.operation.choice == "none" else "unclear"
         target = proposal.referent.choice if proposal.referent is not None else "not_requested"
         unit = proposal.instrument_unit

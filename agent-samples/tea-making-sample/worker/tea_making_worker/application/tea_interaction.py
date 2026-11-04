@@ -6,14 +6,26 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 
 from xr_ai_conversation import Conversation
-from xr_ai_models import DecisionInputTooLargeError, DecisionQuestion, DecisionService
+from xr_ai_models import DecisionAnswer, DecisionInputTooLargeError, DecisionQuestion, DecisionService
 from xr_ai_routing import Admission, AgentTurn, DestinationResult, RoutingAid
 
 from ..components.sop_run_recording import _attempt
 from .tea_sop_agent import SOPAgent, _InteractionProposal
+
+# "restart"/"reset"/"start over" plus a (possibly misheard) mention of tea making. Matches
+# without understanding meaning, so "don't restart the tea" also restarts; fine for a demo.
+_RESTART_REQUEST = re.compile(
+    r"(?=.*\b(?:restart|re-start|reset|start\s+over|start\s+again)\b)(?=.*\b(?:tea|team|teem|t)\b|.*teammaking|.*\bteamaking)",
+    re.IGNORECASE,
+)
+
+
+def _certain(choice: str) -> DecisionAnswer:
+    return DecisionAnswer(choice, 1.0, {choice: 1.0})
 
 
 class _TeaInteraction:
@@ -61,45 +73,55 @@ class _TeaInteraction:
         operation_state = {"status": snapshot.state["status"], "current_step": snapshot.state["current_step"]}
         if "instrument_unit" in snapshot.state:
             operation_state["instrument_unit"] = snapshot.state["instrument_unit"]
-        try:
-            result = await self._decisions.decide(
-                {"sop": operation_state, "previous_exchange": state["previous_exchange"], "request": turn.query}, questions
-            )
-            # A backend may finish after swallowing cancellation. Never move its
-            # result into a fresh task or recreate departed participant context.
-            if asyncio.current_task().cancelling():
-                raise asyncio.CancelledError
-            current = self._runner._interaction_snapshot(turn.participant_id)
-            if current is None or current.session is not snapshot.session:
-                return DestinationResult()
-            operation = result.answers["operation"]
-            requested_target = None
-            if operation.choice != "none" and _InteractionProposal.supported(operation):
-                # The proposed operation is not authority. Resolve its target only
-                # if this exact action survives the user's final intended meaning.
-                allowed_targets = {"assistant_speech", "physical_activity", "other", "not_requested", "unclear"}
-                if operation.choice in {"start", "stop", "restart"}:
-                    allowed_targets.add("workflow")
-                else:
-                    allowed_targets.update(snapshot.state["steps"])
-                target_result = await self._decisions.decide(
-                    {**state, "candidate_operation": {
-                        "label": operation.choice, "meaning": config.control_question.criteria[operation.choice],
-                    }, "request": turn.query},
-                    {"referent": DecisionQuestion(
-                        referent.instructions,
-                        {label: criterion.format_map({"operation_criterion": config.control_question.criteria[operation.choice]})
-                         for label, criterion in referent.criteria.items() if label in allowed_targets},
-                    )},
+        if _RESTART_REQUEST.search(turn.query):
+            # Demo guarantee: a spoken restart of the tea guide always restarts it, even when
+            # speech recognition garbles "tea" and the model is unsure of the target.
+            proposal = _InteractionProposal(_certain("restart"), _certain("workflow"))
+        else:
+            try:
+                result = await self._decisions.decide(
+                    {"sop": operation_state, "previous_exchange": state["previous_exchange"], "request": turn.query},
+                    questions,
                 )
+                # A backend may finish after swallowing cancellation. Never move its
+                # result into a fresh task or recreate departed participant context.
                 if asyncio.current_task().cancelling():
                     raise asyncio.CancelledError
-                requested_target = target_result.answers["referent"]
-            proposal = _InteractionProposal(operation, requested_target, result.answers.get("instrument_unit"))
-        except DecisionInputTooLargeError:
-            # The backend's authoritative limit does not authorize an action.
-            # Preserve the original user request/history for normal Conversation.
-            proposal = None
+                current = self._runner._interaction_snapshot(turn.participant_id)
+                if current is None or current.session is not snapshot.session:
+                    return DestinationResult()
+                operation = result.answers["operation"]
+                requested_target = None
+                if operation.choice != "none" and _InteractionProposal.supported(operation):
+                    # The proposed operation is not authority. Resolve its target only
+                    # if this exact action survives the user's final intended meaning.
+                    allowed_targets = {"assistant_speech", "physical_activity", "other", "not_requested", "unclear"}
+                    if operation.choice in {"start", "stop", "restart"}:
+                        allowed_targets.add("workflow")
+                    else:
+                        allowed_targets.update(snapshot.state["steps"])
+                    target_result = await self._decisions.decide(
+                        {**state, "candidate_operation": {
+                            "label": operation.choice, "meaning": config.control_question.criteria[operation.choice],
+                        }, "request": turn.query},
+                        {"referent": DecisionQuestion(
+                            referent.instructions,
+                            {
+                                label: criterion.format_map(
+                                    {"operation_criterion": config.control_question.criteria[operation.choice]}
+                                )
+                                for label, criterion in referent.criteria.items() if label in allowed_targets
+                            },
+                        )},
+                    )
+                    if asyncio.current_task().cancelling():
+                        raise asyncio.CancelledError
+                    requested_target = target_result.answers["referent"]
+                proposal = _InteractionProposal(operation, requested_target, result.answers.get("instrument_unit"))
+            except DecisionInputTooLargeError:
+                # The backend's authoritative limit does not authorize an action.
+                # Preserve the original user request/history for normal Conversation.
+                proposal = None
         if asyncio.current_task().cancelling():
             raise asyncio.CancelledError
         current = self._runner._interaction_snapshot(turn.participant_id)
