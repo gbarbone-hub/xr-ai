@@ -53,6 +53,14 @@ _STEP_IDS = ("identify", "fill_water", "heat_water", "start_steeping", "steep_ti
 _LOGGER = logging.getLogger(__name__)
 
 
+def _spoken_tea_name(identity: TeaIdentity) -> str | None:
+    """Name the tea with its type, e.g. "Bigelow premium green tea", unless the name already says it."""
+    name, tea_type = identity.tea_name, identity.tea_type
+    if name and tea_type and tea_type.lower() not in name.lower():
+        return f"{name} {tea_type}"
+    return name or tea_type
+
+
 @dataclass(slots=True)
 class _Session:
     """Runner-owned participant state; flow internals arrive only through snapshots."""
@@ -793,9 +801,7 @@ class SOPAgent(Agent):
             settings.temperature.celsius if settings.temperature is not None else self.config.default_temperature_c
         )
         return {
-            "tea_name": (identity.tea_name or identity.tea_type)
-            if identity is not None
-            else self.config.default_tea_name,
+            "tea_name": _spoken_tea_name(identity) if identity is not None else self.config.default_tea_name,
             "temperature_c": temperature_c,
             "temperature_f": round(temperature_c * 9 / 5 + 32, 1),
             "duration_seconds": (
@@ -927,6 +933,24 @@ class SOPAgent(Agent):
                 assessment = self._flow_context(session, flow_id, state).get("assessment")
                 if assessment is not None:
                     facts["assessment"] = assessment
+                # Many frames miss the display. Keep the newest readable value, with its age,
+                # so QA reports a current number instead of repeating an earlier reply.
+                usable = next(
+                    (
+                        o for o in reversed(state.observations)
+                        if isinstance(o.parsed, _TemperatureObservation)
+                        and o.parsed.value is not None
+                        and o.parsed.role != "setpoint"
+                        and not o.parsed.has_other_unit
+                    ),
+                    None,
+                )
+                if usable is not None:
+                    facts["latest_readable_temperature"] = {
+                        "value": usable.parsed.value,
+                        "unit": usable.parsed.unit or session.display_unit,
+                        "age_seconds": max(0, round((time.time_ns() // 1000 - usable.timestamp_us) / 1_000_000)),
+                    }
         else:
             # Timer deadlines and sample times let QA distinguish a current
             # timer from a remaining-time value spoken earlier in the dialogue.
